@@ -29,7 +29,8 @@ const WRITE_TOOLS = new Set([
   "add_tag",
   "remove_tag",
   "rename_tag",
-  "log_to_journal",
+  "log_journal_entry",
+  "add_journal_activity",
 ]);
 
 export interface ToolDef {
@@ -488,48 +489,76 @@ export function buildTools(): ToolDef[] {
       },
     },
     {
-      name: "log_to_journal",
+      name: "log_journal_entry",
       description:
-        "Append a dated activity entry to today's daily note. Creates the journal file from JOURNAL_PATH_TEMPLATE if it does not exist. Use this to record what you did on the user's behalf.",
+        "Append a free-form journal entry to today's daily note. Use this for general notes, observations, or reflections that should land in the journal but are not specifically about an activity Claude performed. Creates the daily note from JOURNAL_PATH_TEMPLATE if it does not exist.",
       inputSchema: z.object({
-        entry: z.string().describe("One-paragraph summary of the activity."),
+        entry: z.string().describe("One-paragraph journal entry."),
       }),
       handler: async (args) => {
-        await vaultService.sync();
-        const cfg = getConfig();
-        const dateStr = todayString(cfg.journal.dateFormat);
-        const journalPath = cfg.journal.pathTemplate.replace("{{date}}", dateStr);
-        const stamp = new Date().toISOString();
-        const newLine = `- ${stamp} — ${String(args["entry"])}`;
-
-        const existing = (await vaultService.exists(journalPath))
-          ? await vaultService.readFile(journalPath)
-          : `# ${dateStr}\n\n${cfg.journal.activitySection}\n\n`;
-
-        let updated: string;
-        if (existing.includes(cfg.journal.activitySection)) {
-          updated = insertAtHeading(
-            existing,
-            cfg.journal.activitySection.replace(/^#+\s*/, ""),
-            newLine,
-            "after",
-          );
-        } else {
-          updated = appendContent(
-            existing,
-            `${cfg.journal.activitySection}\n\n${newLine}`,
-          );
-        }
-
-        await vaultService.writeFile(journalPath, updated);
-        const sha = await vaultService.commitAndPush(
-          `mcp: journal ${path.basename(journalPath)}`,
-        );
-        return formatTool({
-          ok: true,
-          data: { path: journalPath, commit: sha },
+        const data = await writeJournal({
+          line: `- ${new Date().toISOString()} — ${String(args["entry"])}`,
+          underActivityHeading: false,
         });
+        return formatTool({ ok: true, data });
+      },
+    },
+    {
+      name: "add_journal_activity",
+      description:
+        "Record an activity Claude just performed on the user's behalf, under today's daily note '## Activity' section. Use this any time you make changes to the vault so there is an audit trail (e.g. 'Refactored the index of 03-Areas/Health.md and added two new headings').",
+      inputSchema: z.object({
+        activity: z
+          .string()
+          .describe("Short past-tense description of what Claude did."),
+      }),
+      handler: async (args) => {
+        const data = await writeJournal({
+          line: `- ${new Date().toISOString()} — ${String(args["activity"])}`,
+          underActivityHeading: true,
+        });
+        return formatTool({ ok: true, data });
       },
     },
   ];
+}
+
+async function writeJournal(opts: {
+  line: string;
+  underActivityHeading: boolean;
+}): Promise<{ path: string; commit: string | null }> {
+  await vaultService.sync();
+  const cfg = getConfig();
+  const dateStr = todayString(cfg.journal.dateFormat);
+  const journalPath = cfg.journal.pathTemplate.replace("{{date}}", dateStr);
+
+  const seed = `# ${dateStr}\n\n${cfg.journal.activitySection}\n\n`;
+  const existing = (await vaultService.exists(journalPath))
+    ? await vaultService.readFile(journalPath)
+    : seed;
+
+  let updated: string;
+  if (opts.underActivityHeading) {
+    if (existing.includes(cfg.journal.activitySection)) {
+      updated = insertAtHeading(
+        existing,
+        cfg.journal.activitySection.replace(/^#+\s*/, ""),
+        opts.line,
+        "after",
+      );
+    } else {
+      updated = appendContent(
+        existing,
+        `${cfg.journal.activitySection}\n\n${opts.line}`,
+      );
+    }
+  } else {
+    updated = appendContent(existing, opts.line);
+  }
+
+  await vaultService.writeFile(journalPath, updated);
+  const sha = await vaultService.commitAndPush(
+    `mcp: journal ${path.basename(journalPath)}`,
+  );
+  return { path: journalPath, commit: sha };
 }

@@ -10,29 +10,7 @@ import { buildTools, isWriteTool, type ToolDef } from "./tools";
 import { vaultService, VaultError } from "../vault/service";
 import { logger } from "../lib/logger";
 import { redactError } from "../lib/redact";
-
-interface WriteCounter {
-  hits: number[];
-}
-
-const writeCounters = new Map<string, WriteCounter>();
-
-function checkWriteRateLimit(
-  sessionKey: string,
-  maxPerHour: number,
-): { allowed: boolean; remaining: number } {
-  const now = Date.now();
-  const windowMs = 60 * 60 * 1000;
-  const counter = writeCounters.get(sessionKey) ?? { hits: [] };
-  counter.hits = counter.hits.filter((t) => now - t < windowMs);
-  if (counter.hits.length >= maxPerHour) {
-    writeCounters.set(sessionKey, counter);
-    return { allowed: false, remaining: 0 };
-  }
-  counter.hits.push(now);
-  writeCounters.set(sessionKey, counter);
-  return { allowed: true, remaining: maxPerHour - counter.hits.length };
-}
+import { consumeWrite } from "./rateLimit";
 
 function zodToJsonSchema(schema: z.ZodObject<z.ZodRawShape>): {
   type: "object";
@@ -137,8 +115,8 @@ export function createMcpServer(opts: {
     }
 
     if (isWriteTool(name)) {
-      const { allowed, remaining } = checkWriteRateLimit(
-        opts.sessionKey,
+      const { allowed, remaining, resetMs } = await consumeWrite(
+        `writes:${opts.sessionKey}`,
         opts.maxWritesPerHour,
       );
       if (!allowed) {
@@ -150,7 +128,7 @@ export function createMcpServer(opts: {
               text: JSON.stringify({
                 ok: false,
                 error: `Write rate limit exceeded (${opts.maxWritesPerHour}/hour).`,
-                hint: "Wait until the rolling hour window expires, or raise MAX_WRITES_PER_HOUR on Railway.",
+                hint: `Wait ~${Math.ceil(resetMs / 60_000)} minutes for the rolling window to reset, or raise MAX_WRITES_PER_HOUR on Railway.`,
               }),
             },
           ],

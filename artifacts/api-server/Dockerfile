@@ -15,7 +15,7 @@ RUN corepack enable && pnpm install --frozen-lockfile=false
 
 FROM deps AS build
 COPY . .
-RUN pnpm --filter @workspace/api-zod build || true
+RUN pnpm --filter @workspace/api-zod build
 RUN pnpm --filter @workspace/api-server build
 
 FROM node:20-alpine AS runtime

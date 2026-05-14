@@ -27,11 +27,11 @@ function isAllowedRedirect(uri: string): boolean {
   return cfg.oauthAllowedRedirectPrefixes.some((prefix) => uri.startsWith(prefix));
 }
 
-export function requireAccessToken(
+export async function requireAccessToken(
   req: AuthedRequest,
   res: Response,
   next: NextFunction,
-): void {
+): Promise<void> {
   const header = req.headers.authorization ?? "";
   const m = /^Bearer\s+(.+)$/i.exec(header);
   if (!m) {
@@ -44,13 +44,13 @@ export function requireAccessToken(
       });
     return;
   }
-  const entry = lookupAccessToken(m[1]!);
+  const entry = await lookupAccessToken(m[1]!);
   if (!entry) {
     res.status(401)
       .header("WWW-Authenticate", `Bearer realm="obsidian-mcp-railway", error="invalid_token"`)
       .json({
         error: "invalid_token",
-        error_description: "Access token is invalid or expired. Re-run the OAuth flow.",
+        error_description: "Access token is invalid, expired, or signed with a different secret. Re-run the OAuth flow.",
       });
     return;
   }
@@ -236,7 +236,7 @@ export function buildOAuthRouter(): IRouter {
     res.redirect(302, url.toString());
   });
 
-  router.post("/oauth/token", (req, res) => {
+  router.post("/oauth/token", async (req, res) => {
     const cfg = getConfig();
     const body = req.body as Record<string, string>;
     if (body["grant_type"] !== "authorization_code") {
@@ -269,7 +269,7 @@ export function buildOAuthRouter(): IRouter {
       });
       return;
     }
-    const token = issueAccessToken({
+    const token = await issueAccessToken({
       clientId: entry.clientId,
       scope: entry.scope,
       ttlSec: cfg.oauth.accessTokenTtlSec,

@@ -31,8 +31,14 @@ function reapStaleSessions(maxAgeMs: number): void {
 
 setInterval(() => reapStaleSessions(2 * 60 * 60 * 1000), 5 * 60 * 1000).unref();
 
+let mounted = false;
+export function isMcpRouterMounted(): boolean {
+  return mounted;
+}
+
 export function buildMcpRouter(): IRouter {
   const router = Router();
+  mounted = true;
 
   router.use(requireAccessToken);
 
