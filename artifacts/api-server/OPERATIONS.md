@@ -36,7 +36,7 @@ Single-user remote MCP server that exposes a git-backed Obsidian vault to Claude
 ## Connecting Claude.ai (web / iOS)
 
 1. In Claude.ai, open the connectors panel and add a custom MCP server.
-2. URL: `https://<your-railway-domain>/api/mcp`
+2. URL: `https://<your-railway-domain>/mcp`
 3. Claude will discover the OAuth metadata at `/.well-known/oauth-authorization-server` and start the OAuth flow.
 4. When the login form appears, paste your `PERSONAL_AUTH_TOKEN` and submit.
 5. Claude.ai stores the access token and reuses it (default 24 h). Reconnect daily as needed — the iOS/Claude.ai remote MCP UI is still maturing.
@@ -50,7 +50,7 @@ Two options:
 {
   "mcpServers": {
     "obsidian-railway": {
-      "url": "https://<your-railway-domain>/api/mcp",
+      "url": "https://<your-railway-domain>/mcp",
       "transport": "http"
     }
   }

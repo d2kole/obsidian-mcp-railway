@@ -147,7 +147,9 @@ export function createMcpServer(opts: {
       const message = redactError(err);
       let hint: string | undefined;
       if (err instanceof VaultError) {
-        hint = err.hint;
+        hint =
+          err.hint ??
+          "Re-read the affected note, adjust your arguments to match its current contents, and retry. If the file or anchor was removed, fall back to write_note or search_vault.";
       } else if (err instanceof z.ZodError) {
         const fields = err.issues
           .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)

@@ -52,7 +52,7 @@ app.use("/api", router);
 app.get("/", (_req, res) => {
   res.json({
     name: "obsidian-mcp-railway",
-    mcp_endpoint: "/api/mcp",
+    mcp_endpoint: "/mcp",
     health: "/api/healthz",
     oauth_metadata: "/.well-known/oauth-authorization-server",
   });
