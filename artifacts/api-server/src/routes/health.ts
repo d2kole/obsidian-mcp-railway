@@ -40,9 +40,19 @@ router.get("/healthz", async (_req, res) => {
     });
   }
 
-  // 2. Real git fetch dry-run against the configured remote.
+  // 2. Real git fetch dry-run against the configured remote, hard-capped
+  //    so a slow upstream cannot blow past Railway's healthcheck timeout.
   try {
-    await vaultService.dryRunFetch();
+    const FETCH_TIMEOUT_MS = 400;
+    await Promise.race([
+      vaultService.dryRunFetch(),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`git fetch dry-run exceeded ${FETCH_TIMEOUT_MS}ms`)),
+          FETCH_TIMEOUT_MS,
+        ),
+      ),
+    ]);
     checks.push({ name: "git_fetch_dry_run", ok: true });
   } catch (err) {
     checks.push({

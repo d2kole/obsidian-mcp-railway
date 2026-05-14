@@ -23,6 +23,21 @@ async function main(): Promise<void> {
     logger.error({ err: redactError(err) }, "vault init failed; continuing so /healthz can report");
   }
 
+  // Log the final tool inventory at startup so ops can confirm parity.
+  try {
+    const { buildTools, isWriteTool } = await import("./mcp/tools");
+    const tools = buildTools();
+    logger.info(
+      {
+        count: tools.length,
+        tools: tools.map((t) => ({ name: t.name, write: isWriteTool(t.name) })),
+      },
+      "MCP tool inventory",
+    );
+  } catch (err) {
+    logger.warn({ err: redactError(err) }, "could not enumerate tools at startup");
+  }
+
   app.listen(cfg.port, (err?: Error) => {
     if (err) {
       logger.error({ err }, "Error listening on port");
