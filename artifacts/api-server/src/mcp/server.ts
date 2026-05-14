@@ -145,7 +145,18 @@ export function createMcpServer(opts: {
       return result as { content: { type: "text"; text: string }[] };
     } catch (err) {
       const message = redactError(err);
-      const hint = err instanceof VaultError ? err.hint : undefined;
+      let hint: string | undefined;
+      if (err instanceof VaultError) {
+        hint = err.hint;
+      } else if (err instanceof z.ZodError) {
+        const fields = err.issues
+          .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+          .join("; ");
+        hint = `Fix the arguments and retry. Failing fields: ${fields}. Call ListTools to see this tool's input schema.`;
+      } else {
+        hint =
+          "Inspect the error message, then either retry with different arguments or call a different tool. Use ListTools if unsure which tool fits.";
+      }
       logger.warn({ tool: name, err: message }, "tool error");
       return {
         isError: true,

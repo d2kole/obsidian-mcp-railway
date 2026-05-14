@@ -441,12 +441,11 @@ export function buildTools(): ToolDef[] {
           const without = removeTagFromContent(c, fromTag);
           const renamed = addTagToContent(without, toTag);
           if (renamed !== c) {
-            try {
-              await vaultService.writeFile(f, renamed);
-              touched.push(f);
-            } catch (err) {
-              logger.warn({ file: f, err: (err as Error).message }, "rename_tag skipped (write not allowed)");
-            }
+            // Pre-flight: refuse the whole batch if any file would be rejected
+            // by the write-path allowlist, so we don't half-rename a tag.
+            vaultService.assertWriteAllowed(f);
+            await vaultService.writeFile(f, renamed);
+            touched.push(f);
           }
         }
         const sha = touched.length

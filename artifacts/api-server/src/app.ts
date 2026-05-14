@@ -45,6 +45,8 @@ app.use(express.urlencoded({ extended: true }));
 // OAuth and discovery endpoints are mounted at the root (Claude.ai expects /.well-known/* and /oauth/* at the apex).
 app.use(buildOAuthRouter());
 
+import { buildMcpRouter } from "./mcp/transport";
+app.use("/mcp", buildMcpRouter());
 app.use("/api", router);
 
 app.get("/", (_req, res) => {

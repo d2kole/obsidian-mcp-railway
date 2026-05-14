@@ -24,7 +24,8 @@ export class VaultService {
   private writePaths: string[] = [];
   private initialized = false;
   private lastSyncMs = 0;
-  private readonly minSyncIntervalMs = 5_000;
+  // Pull before every read per spec; no throttle by default. Set VAULT_SYNC_MIN_INTERVAL_MS to throttle in dev.
+  private readonly minSyncIntervalMs = Number(process.env["VAULT_SYNC_MIN_INTERVAL_MS"] ?? 0);
 
   async init(): Promise<void> {
     const cfg = getConfig();

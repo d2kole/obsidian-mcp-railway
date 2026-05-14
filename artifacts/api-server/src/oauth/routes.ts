@@ -18,13 +18,31 @@ export interface AuthedRequest extends Request {
 
 function isAllowedRedirect(uri: string): boolean {
   const cfg = getConfig();
+  let target: URL;
   try {
-    // eslint-disable-next-line no-new
-    new URL(uri);
+    target = new URL(uri);
   } catch {
     return false;
   }
-  return cfg.oauthAllowedRedirectPrefixes.some((prefix) => uri.startsWith(prefix));
+  // No fragments allowed in redirect_uri per RFC 6749 §3.1.2.
+  if (target.hash) return false;
+  return cfg.oauthAllowedRedirectPrefixes.some((prefix) => {
+    let allowed: URL;
+    try {
+      allowed = new URL(prefix);
+    } catch {
+      return false;
+    }
+    if (target.protocol !== allowed.protocol) return false;
+    // Exact host match (prevents localhost.evil.com bypass).
+    if (target.hostname !== allowed.hostname) return false;
+    // Exact port match (treat empty as protocol default).
+    if ((target.port || "") !== (allowed.port || "")) return false;
+    // Path must be under the allowed prefix path.
+    const allowedPath = allowed.pathname || "/";
+    if (!target.pathname.startsWith(allowedPath)) return false;
+    return true;
+  });
 }
 
 export async function requireAccessToken(
