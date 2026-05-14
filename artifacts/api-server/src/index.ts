@@ -3,6 +3,7 @@ import { logger } from "./lib/logger";
 import { loadConfig } from "./lib/config";
 import { vaultService } from "./vault/service";
 import { runStdio } from "./mcp/stdio";
+import { redactError } from "./lib/redact";
 
 async function main(): Promise<void> {
   const mode =
@@ -19,7 +20,7 @@ async function main(): Promise<void> {
   try {
     await vaultService.init();
   } catch (err) {
-    logger.error({ err: (err as Error).message }, "vault init failed; continuing so /healthz can report");
+    logger.error({ err: redactError(err) }, "vault init failed; continuing so /healthz can report");
   }
 
   app.listen(cfg.port, (err?: Error) => {
@@ -35,6 +36,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  logger.error({ err: (err as Error).message }, "fatal startup error");
+  logger.error({ err: redactError(err) }, "fatal startup error");
   process.exit(1);
 });

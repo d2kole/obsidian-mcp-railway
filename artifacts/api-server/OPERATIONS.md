@@ -17,6 +17,7 @@ Single-user remote MCP server that exposes a git-backed Obsidian vault to Claude
 | `OBSIDIAN_WRITE_PATHS` | no | Comma-separated list of vault-relative folders Claude is allowed to write to. Default: `00-Inbox,01-Daily,Captures,Journal`. |
 | `MAX_WRITES_PER_HOUR` | no (default `20`) | Server-side rolling-window cap on write tool calls per session. |
 | `OAUTH_ACCESS_TOKEN_TTL_SEC` | no (default `86400`) | Access token lifetime in seconds. |
+| `OAUTH_ALLOWED_REDIRECT_PREFIXES` | no | Comma-separated allowlist of `redirect_uri` prefixes. Default: `https://claude.ai/,https://claude.com/,http://localhost,http://127.0.0.1`. Tighten this if you only use one client. |
 | `JOURNAL_PATH_TEMPLATE` | no (default `Journal/{{date}}.md`) | Path of the daily note used by `log_to_journal`. |
 | `JOURNAL_DATE_FORMAT` | no (default `YYYY-MM-DD`) | Date format substituted into `JOURNAL_PATH_TEMPLATE`. |
 | `JOURNAL_ACTIVITY_SECTION` | no (default `## Activity`) | Heading under which `log_to_journal` appends entries. |

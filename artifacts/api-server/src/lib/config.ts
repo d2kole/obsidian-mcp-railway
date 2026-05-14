@@ -52,6 +52,7 @@ export interface AppConfig {
   rateLimit: {
     maxWritesPerHour: number;
   };
+  oauthAllowedRedirectPrefixes: string[];
   journal: {
     pathTemplate: string;
     dateFormat: string;
@@ -98,6 +99,12 @@ export function loadConfig(mode: "http" | "stdio"): AppConfig {
     rateLimit: {
       maxWritesPerHour: optionalNum("MAX_WRITES_PER_HOUR", 20),
     },
+    oauthAllowedRedirectPrefixes: parseList("OAUTH_ALLOWED_REDIRECT_PREFIXES", [
+      "https://claude.ai/",
+      "https://claude.com/",
+      "http://localhost",
+      "http://127.0.0.1",
+    ]),
     journal: {
       pathTemplate: optional("JOURNAL_PATH_TEMPLATE", "Journal/{{date}}.md"),
       dateFormat: optional("JOURNAL_DATE_FORMAT", "YYYY-MM-DD"),

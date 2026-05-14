@@ -5,7 +5,7 @@ interface AuthCode {
   clientId: string;
   redirectUri: string;
   codeChallenge: string;
-  codeChallengeMethod: "S256" | "plain";
+  codeChallengeMethod: "S256";
   scope: string;
   expiresAt: number;
 }
@@ -24,7 +24,7 @@ export function createAuthCode(input: {
   clientId: string;
   redirectUri: string;
   codeChallenge: string;
-  codeChallengeMethod: "S256" | "plain";
+  codeChallengeMethod: "S256";
   scope: string;
   ttlMs?: number;
 }): string {
@@ -49,12 +49,7 @@ export function consumeAuthCode(code: string): AuthCode | null {
   return entry;
 }
 
-export function verifyPkce(
-  verifier: string,
-  challenge: string,
-  method: "S256" | "plain",
-): boolean {
-  if (method === "plain") return verifier === challenge;
+export function verifyPkce(verifier: string, challenge: string): boolean {
   const hash = crypto
     .createHash("sha256")
     .update(verifier)

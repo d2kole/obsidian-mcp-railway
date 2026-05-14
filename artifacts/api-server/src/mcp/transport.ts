@@ -6,6 +6,7 @@ import { createMcpServer } from "./server";
 import { requireAccessToken, type AuthedRequest } from "../oauth/routes";
 import { getConfig } from "../lib/config";
 import { logger } from "../lib/logger";
+import { redactError } from "../lib/redact";
 
 interface ActiveSession {
   transport: StreamableHTTPServerTransport;
@@ -78,7 +79,7 @@ export function buildMcpRouter(): IRouter {
 
       await session.transport.handleRequest(req as unknown as Request, res, req.body);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = redactError(err);
       logger.error({ err: message }, "mcp transport error");
       if (!res.headersSent) {
         res.status(500).json({

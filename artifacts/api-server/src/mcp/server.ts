@@ -9,6 +9,7 @@ import { z } from "zod";
 import { buildTools, isWriteTool, type ToolDef } from "./tools";
 import { vaultService, VaultError } from "../vault/service";
 import { logger } from "../lib/logger";
+import { redactError } from "../lib/redact";
 
 interface WriteCounter {
   hits: number[];
@@ -165,7 +166,7 @@ export function createMcpServer(opts: {
       const result = await tool.handler(parsed as Record<string, unknown>);
       return result as { content: { type: "text"; text: string }[] };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = redactError(err);
       const hint = err instanceof VaultError ? err.hint : undefined;
       logger.warn({ tool: name, err: message }, "tool error");
       return {

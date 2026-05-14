@@ -16,6 +16,17 @@ export interface AuthedRequest extends Request {
   auth?: { clientId: string; token: string };
 }
 
+function isAllowedRedirect(uri: string): boolean {
+  const cfg = getConfig();
+  try {
+    // eslint-disable-next-line no-new
+    new URL(uri);
+  } catch {
+    return false;
+  }
+  return cfg.oauthAllowedRedirectPrefixes.some((prefix) => uri.startsWith(prefix));
+}
+
 export function requireAccessToken(
   req: AuthedRequest,
   res: Response,
@@ -60,8 +71,8 @@ export function buildOAuthRouter(): IRouter {
       registration_endpoint: `${cfg.baseUrl}/oauth/register`,
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code"],
-      code_challenge_methods_supported: ["S256", "plain"],
-      token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
+      code_challenge_methods_supported: ["S256"],
+      token_endpoint_auth_methods_supported: ["none"],
       scopes_supported: ["mcp"],
     });
   });
@@ -93,6 +104,7 @@ export function buildOAuthRouter(): IRouter {
 
   // Authorize — render minimal login form.
   router.get("/oauth/authorize", (req, res) => {
+    const cfg = getConfig();
     const params = req.query as Record<string, string | undefined>;
     const required = ["response_type", "client_id", "redirect_uri", "code_challenge"];
     for (const k of required) {
@@ -108,6 +120,28 @@ export function buildOAuthRouter(): IRouter {
       res.status(400).json({
         error: "unsupported_response_type",
         error_description: "Only response_type=code is supported.",
+      });
+      return;
+    }
+    if (params["client_id"] !== cfg.oauth.clientId) {
+      res.status(400).json({
+        error: "unauthorized_client",
+        error_description: "Unknown client_id.",
+      });
+      return;
+    }
+    if (!isAllowedRedirect(params["redirect_uri"]!)) {
+      res.status(400).json({
+        error: "invalid_request",
+        error_description:
+          "redirect_uri is not in the allowlist. Configure OAUTH_ALLOWED_REDIRECT_PREFIXES if you need to add a new client.",
+      });
+      return;
+    }
+    if ((params["code_challenge_method"] ?? "S256") !== "S256") {
+      res.status(400).json({
+        error: "invalid_request",
+        error_description: "Only code_challenge_method=S256 is supported.",
       });
       return;
     }
@@ -167,12 +201,32 @@ export function buildOAuthRouter(): IRouter {
       });
       return;
     }
-    const method = (body["code_challenge_method"] ?? "S256") as "S256" | "plain";
+    if (body["client_id"] !== cfg.oauth.clientId) {
+      res.status(400).json({
+        error: "unauthorized_client",
+        error_description: "Unknown client_id.",
+      });
+      return;
+    }
+    if (!isAllowedRedirect(body["redirect_uri"])) {
+      res.status(400).json({
+        error: "invalid_request",
+        error_description: "redirect_uri is not in the allowlist.",
+      });
+      return;
+    }
+    if ((body["code_challenge_method"] ?? "S256") !== "S256") {
+      res.status(400).json({
+        error: "invalid_request",
+        error_description: "Only code_challenge_method=S256 is supported.",
+      });
+      return;
+    }
     const code = createAuthCode({
-      clientId: body["client_id"] ?? cfg.oauth.clientId,
+      clientId: cfg.oauth.clientId,
       redirectUri: body["redirect_uri"],
       codeChallenge: body["code_challenge"],
-      codeChallengeMethod: method,
+      codeChallengeMethod: "S256",
       scope: body["scope"] ?? "mcp",
     });
     const url = new URL(body["redirect_uri"]);
@@ -208,7 +262,7 @@ export function buildOAuthRouter(): IRouter {
       return;
     }
     const verifier = body["code_verifier"];
-    if (!verifier || !verifyPkce(verifier, entry.codeChallenge, entry.codeChallengeMethod)) {
+    if (!verifier || !verifyPkce(verifier, entry.codeChallenge)) {
       res.status(400).json({
         error: "invalid_grant",
         error_description: "PKCE verification failed.",

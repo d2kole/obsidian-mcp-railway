@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { vaultService } from "../vault/service";
 import { getActiveSessionCount } from "../mcp/transport";
 import { logger } from "../lib/logger";
+import { redactError } from "../lib/redact";
 
 const router: IRouter = Router();
 
@@ -23,7 +24,7 @@ router.get("/healthz", async (_req, res) => {
     checks.push({
       name: "vault_cache_present",
       ok: false,
-      detail: (err as Error).message,
+      detail: redactError(err),
     });
   }
 
@@ -34,7 +35,7 @@ router.get("/healthz", async (_req, res) => {
     checks.push({
       name: "git_fetch_dry_run",
       ok: false,
-      detail: (err as Error).message,
+      detail: redactError(err),
     });
   }
 

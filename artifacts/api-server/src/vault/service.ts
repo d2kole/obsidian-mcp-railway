@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { simpleGit, type SimpleGit } from "simple-git";
 import { logger } from "../lib/logger";
 import { getConfig } from "../lib/config";
+import { redactError, redactSecrets } from "../lib/redact";
 
 export class VaultError extends Error {
   constructor(
@@ -45,11 +46,16 @@ export class VaultService {
         "Vault cache empty, cloning from GitHub",
       );
       const tempGit = simpleGit();
-      await tempGit.clone(this.repoUrl, this.cacheDir, [
-        "--branch",
-        this.branch,
-        "--single-branch",
-      ]);
+      try {
+        await tempGit.clone(this.repoUrl, this.cacheDir, [
+          "--branch",
+          this.branch,
+          "--single-branch",
+        ]);
+      } catch (err) {
+        logger.error({ err: redactError(err) }, "Vault clone failed");
+        throw new Error(redactSecrets("Vault clone failed. See logs for details."));
+      }
       logger.info("Vault clone complete");
     }
 
@@ -81,16 +87,21 @@ export class VaultService {
       await this.git!.pull("origin", this.branch, ["--ff-only"]);
       this.lastSyncMs = now;
     } catch (err) {
+      logger.warn({ err: redactError(err) }, "git pull failed");
       throw new VaultError(
-        `git pull failed: ${(err as Error).message}`,
-        "Check that GITHUB_PAT is valid and has read access to VAULT_REPO_URL.",
+        "git pull failed.",
+        "Check that GITHUB_PAT is valid and has read access to VAULT_REPO_URL. See server logs for redacted details.",
       );
     }
   }
 
   async dryRunFetch(): Promise<void> {
     this.ensureInit();
-    await this.git!.raw(["fetch", "--dry-run", "origin", this.branch]);
+    try {
+      await this.git!.raw(["fetch", "--dry-run", "origin", this.branch]);
+    } catch (err) {
+      throw new Error(redactError(err));
+    }
   }
 
   async commitAndPush(message: string): Promise<string | null> {
@@ -104,9 +115,10 @@ export class VaultService {
     try {
       await this.git!.push("origin", this.branch);
     } catch (err) {
+      logger.warn({ err: redactError(err) }, "git push failed");
       throw new VaultError(
-        `git push failed: ${(err as Error).message}`,
-        "Check that GITHUB_PAT has write access (contents: write) to VAULT_REPO_URL.",
+        "git push failed.",
+        "Check that GITHUB_PAT has write access (contents: write) to VAULT_REPO_URL. See server logs for redacted details.",
       );
     }
     return commit.commit;
