@@ -1,0 +1,89 @@
+# obsidian-mcp-railway — Operations
+
+Single-user remote MCP server that exposes a git-backed Obsidian vault to Claude.ai (web), Claude iOS, and Claude Code CLI. The vault lives in a private GitHub repo; this server runs on Railway and clones the vault into a persistent volume.
+
+## Required environment variables (HTTP mode)
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `VAULT_REPO_URL` | yes | HTTPS URL of the private vault repo, e.g. `https://github.com/d2kole/obsidian-vault.git`. |
+| `VAULT_BRANCH` | no (default `main`) | Branch the server tracks. |
+| `GITHUB_PAT` | yes (Sealed) | Fine-grained PAT with `contents: read+write` scoped to the vault repo only. 90-day expiry recommended. |
+| `OAUTH_CLIENT_ID` | no (default `obsidian-mcp-railway`) | Client identifier returned by `/oauth/register`. |
+| `OAUTH_CLIENT_SECRET` | yes (Sealed) | Random 32-byte secret used to sign tokens. Generate with `openssl rand -base64 32`. |
+| `SESSION_ENCRYPTION_KEY` | yes (Sealed) | 32-byte secret for session integrity. Generate with `openssl rand -base64 32`. |
+| `PERSONAL_AUTH_TOKEN` | yes (Sealed) | The single-user password you type into the OAuth login form. Generate with `openssl rand -base64 24`. |
+| `BASE_URL` | yes | The public Railway URL, e.g. `https://obsidian-mcp-railway.up.railway.app`. Used in OAuth metadata. |
+| `OBSIDIAN_WRITE_PATHS` | no | Comma-separated list of vault-relative folders Claude is allowed to write to. Default: `00-Inbox,01-Daily,Captures,Journal`. |
+| `MAX_WRITES_PER_HOUR` | no (default `20`) | Server-side rolling-window cap on write tool calls per session. |
+| `OAUTH_ACCESS_TOKEN_TTL_SEC` | no (default `86400`) | Access token lifetime in seconds. |
+| `JOURNAL_PATH_TEMPLATE` | no (default `Journal/{{date}}.md`) | Path of the daily note used by `log_to_journal`. |
+| `JOURNAL_DATE_FORMAT` | no (default `YYYY-MM-DD`) | Date format substituted into `JOURNAL_PATH_TEMPLATE`. |
+| `JOURNAL_ACTIVITY_SECTION` | no (default `## Activity`) | Heading under which `log_to_journal` appends entries. |
+| `VAULT_CACHE_DIR` | no (default `/vault-cache`) | Mount point of the Railway volume. |
+| `PORT` | no (default `3000`) | HTTP port. Railway injects this automatically. |
+
+## First-time Railway setup
+
+1. **Create the Railway project** and connect this repo.
+2. **Add a 1 GB volume** mounted at `/vault-cache` (Service → Settings → Volumes).
+3. **Set environment variables** above. Mark `GITHUB_PAT`, `OAUTH_CLIENT_SECRET`, `SESSION_ENCRYPTION_KEY`, and `PERSONAL_AUTH_TOKEN` as **Sealed Variables**.
+4. **Region**: pick `us-east4` (Virginia) for low latency from US East.
+5. **Healthcheck**: confirm Service Settings shows `/api/healthz` (this is set in `railway.toml`).
+6. **Deploy.** First boot will clone the vault into `/vault-cache` (may take a few minutes for large vaults).
+
+## Connecting Claude.ai (web / iOS)
+
+1. In Claude.ai, open the connectors panel and add a custom MCP server.
+2. URL: `https://<your-railway-domain>/api/mcp`
+3. Claude will discover the OAuth metadata at `/.well-known/oauth-authorization-server` and start the OAuth flow.
+4. When the login form appears, paste your `PERSONAL_AUTH_TOKEN` and submit.
+5. Claude.ai stores the access token and reuses it (default 24 h). Reconnect daily as needed — the iOS/Claude.ai remote MCP UI is still maturing.
+
+## Connecting Claude Code CLI (most reliable path)
+
+Two options:
+
+**A. Remote (HTTP):** add to `~/.config/claude-code/mcp.json`:
+```json
+{
+  "mcpServers": {
+    "obsidian-railway": {
+      "url": "https://<your-railway-domain>/api/mcp",
+      "transport": "http"
+    }
+  }
+}
+```
+
+**B. Local (stdio):** point Claude Code at the same image running locally with the same env vars. The `stdio` mode can also be invoked directly (`node dist/index.mjs stdio`) for offline development.
+
+## PAT rotation runbook
+
+1. Open GitHub → Settings → Developer settings → Personal access tokens (fine-grained).
+2. Revoke the existing PAT.
+3. Create a new fine-grained PAT scoped only to the vault repo, with `contents: read+write`. Set a 90-day expiry.
+4. In Railway → Variables, edit the `GITHUB_PAT` Sealed Variable and paste the new value.
+5. Trigger a redeploy (Service → Deployments → Redeploy). The server re-clones using the new PAT on startup.
+6. Confirm `/api/healthz` returns 200 with `git_fetch_dry_run.ok: true`.
+
+## Volume disaster-recovery drill (run once after first deploy)
+
+1. Note the current vault SHA in GitHub.
+2. Railway → Service → Volumes → delete `vault-cache` volume.
+3. Re-attach an empty 1 GB volume at `/vault-cache`.
+4. Trigger redeploy. Confirm logs show `Vault cache empty, cloning from GitHub` followed by `Vault clone complete`.
+5. Confirm `/api/healthz` returns 200 and `read_note` works on a known file via Claude.
+
+## Architecture notes
+
+- **Source of truth: GitHub.** Desktop, Railway volume, and any client are caches.
+- **Single-writer.** Desktop (Obsidian Git plugin) auto-pushes every 10 min; iOS Obsidian Git plugin is disabled. Mobile capture goes through Claude/MCP only.
+- **Every Claude write is a git commit.** Reverting a bad LLM session = `git revert` on GitHub.
+- **`MAX_WRITES_PER_HOUR=20`** is the safety net against runaway tool calls. Adjust upward only when you trust the workflow.
+- **`obsidian_execute_command` is intentionally not implemented** (too much blast radius — vault contents only, no command-palette dispatch).
+
+## Out of scope (future work)
+
+- Pushover alerting on consecutive `/healthz` failures (Phase 2 — set up after deploy with your Pushover key).
+- Conflict resolution on simultaneous Desktop + MCP writes (single-writer pattern avoids this for now).

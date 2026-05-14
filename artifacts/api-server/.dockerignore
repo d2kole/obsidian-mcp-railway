@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+**/dist
+**/.turbo
+**/.next
+**/*.tsbuildinfo
+.git
+.local
+attached_assets
+artifacts/mockup-sandbox
+*.log
+.DS_Store

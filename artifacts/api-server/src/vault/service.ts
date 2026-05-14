@@ -1,0 +1,267 @@
+import path from "node:path";
+import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { simpleGit, type SimpleGit } from "simple-git";
+import { logger } from "../lib/logger";
+import { getConfig } from "../lib/config";
+
+export class VaultError extends Error {
+  constructor(
+    message: string,
+    public readonly hint?: string,
+  ) {
+    super(message);
+    this.name = "VaultError";
+  }
+}
+
+export class VaultService {
+  private git: SimpleGit | null = null;
+  private cacheDir = "";
+  private repoUrl = "";
+  private branch = "main";
+  private writePaths: string[] = [];
+  private initialized = false;
+  private lastSyncMs = 0;
+  private readonly minSyncIntervalMs = 5_000;
+
+  async init(): Promise<void> {
+    const cfg = getConfig();
+    this.cacheDir = cfg.vault.cacheDir;
+    this.branch = cfg.vault.branch;
+    this.writePaths = cfg.vault.writePaths;
+
+    const url = new URL(cfg.vault.repoUrl);
+    url.username = "x-access-token";
+    url.password = cfg.vault.githubPat;
+    this.repoUrl = url.toString();
+
+    await fs.mkdir(this.cacheDir, { recursive: true });
+
+    const gitDir = path.join(this.cacheDir, ".git");
+    if (!existsSync(gitDir)) {
+      logger.info(
+        { cacheDir: this.cacheDir, branch: this.branch },
+        "Vault cache empty, cloning from GitHub",
+      );
+      const tempGit = simpleGit();
+      await tempGit.clone(this.repoUrl, this.cacheDir, [
+        "--branch",
+        this.branch,
+        "--single-branch",
+      ]);
+      logger.info("Vault clone complete");
+    }
+
+    this.git = simpleGit(this.cacheDir);
+    await this.git.addConfig("user.email", "obsidian-mcp@railway.local");
+    await this.git.addConfig("user.name", "obsidian-mcp-railway");
+    await this.git.remote(["set-url", "origin", this.repoUrl]);
+
+    this.initialized = true;
+    logger.info("VaultService initialized");
+  }
+
+  private ensureInit(): void {
+    if (!this.initialized || !this.git) {
+      throw new VaultError(
+        "Vault service is not initialized.",
+        "Wait for server startup to complete or check /api/healthz for git/PAT errors.",
+      );
+    }
+  }
+
+  async sync(force = false): Promise<void> {
+    this.ensureInit();
+    const now = Date.now();
+    if (!force && now - this.lastSyncMs < this.minSyncIntervalMs) {
+      return;
+    }
+    try {
+      await this.git!.pull("origin", this.branch, ["--ff-only"]);
+      this.lastSyncMs = now;
+    } catch (err) {
+      throw new VaultError(
+        `git pull failed: ${(err as Error).message}`,
+        "Check that GITHUB_PAT is valid and has read access to VAULT_REPO_URL.",
+      );
+    }
+  }
+
+  async dryRunFetch(): Promise<void> {
+    this.ensureInit();
+    await this.git!.raw(["fetch", "--dry-run", "origin", this.branch]);
+  }
+
+  async commitAndPush(message: string): Promise<string | null> {
+    this.ensureInit();
+    const status = await this.git!.status();
+    if (status.isClean()) {
+      return null;
+    }
+    await this.git!.add(["-A"]);
+    const commit = await this.git!.commit(message);
+    try {
+      await this.git!.push("origin", this.branch);
+    } catch (err) {
+      throw new VaultError(
+        `git push failed: ${(err as Error).message}`,
+        "Check that GITHUB_PAT has write access (contents: write) to VAULT_REPO_URL.",
+      );
+    }
+    return commit.commit;
+  }
+
+  resolveSafePath(relPath: string): string {
+    this.ensureInit();
+    const cleaned = relPath.replace(/^\/+/, "").replace(/\\/g, "/");
+    if (cleaned.includes("..")) {
+      throw new VaultError(
+        `Invalid path: "${relPath}" — parent traversal is not allowed.`,
+        "Use a path relative to the vault root (e.g. '00-Inbox/note.md').",
+      );
+    }
+    const abs = path.resolve(this.cacheDir, cleaned);
+    if (!abs.startsWith(this.cacheDir + path.sep) && abs !== this.cacheDir) {
+      throw new VaultError(
+        `Invalid path: "${relPath}" escapes the vault root.`,
+        "Use a path relative to the vault root.",
+      );
+    }
+    return abs;
+  }
+
+  isWriteAllowed(relPath: string): boolean {
+    const cleaned = relPath.replace(/^\/+/, "").replace(/\\/g, "/");
+    return this.writePaths.some(
+      (allowed) =>
+        cleaned === allowed ||
+        cleaned.startsWith(allowed + "/") ||
+        cleaned.startsWith(allowed.replace(/\/+$/, "") + "/"),
+    );
+  }
+
+  assertWriteAllowed(relPath: string): void {
+    if (!this.isWriteAllowed(relPath)) {
+      throw new VaultError(
+        `Write rejected: "${relPath}" is outside the allowed write paths.`,
+        `Allowed write paths: ${this.writePaths.join(", ")}. ` +
+          `Either choose a path inside one of those folders, or update the OBSIDIAN_WRITE_PATHS environment variable on Railway.`,
+      );
+    }
+  }
+
+  getCacheDir(): string {
+    return this.cacheDir;
+  }
+
+  getWritePaths(): string[] {
+    return [...this.writePaths];
+  }
+
+  async readFile(relPath: string): Promise<string> {
+    const abs = this.resolveSafePath(relPath);
+    try {
+      return await fs.readFile(abs, "utf8");
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException;
+      if (e.code === "ENOENT") {
+        throw new VaultError(
+          `Note not found: "${relPath}".`,
+          "Check the path with list_notes or search_vault, or create the note with write_note.",
+        );
+      }
+      throw new VaultError(`Failed to read "${relPath}": ${e.message}`);
+    }
+  }
+
+  async writeFile(relPath: string, content: string): Promise<void> {
+    this.assertWriteAllowed(relPath);
+    const abs = this.resolveSafePath(relPath);
+    await fs.mkdir(path.dirname(abs), { recursive: true });
+    await fs.writeFile(abs, content, "utf8");
+  }
+
+  async deleteFile(relPath: string): Promise<void> {
+    this.assertWriteAllowed(relPath);
+    const abs = this.resolveSafePath(relPath);
+    try {
+      await fs.unlink(abs);
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException;
+      if (e.code === "ENOENT") {
+        throw new VaultError(`Note not found: "${relPath}".`);
+      }
+      throw new VaultError(`Failed to delete "${relPath}": ${e.message}`);
+    }
+  }
+
+  async moveFile(fromPath: string, toPath: string): Promise<void> {
+    this.assertWriteAllowed(fromPath);
+    this.assertWriteAllowed(toPath);
+    const absFrom = this.resolveSafePath(fromPath);
+    const absTo = this.resolveSafePath(toPath);
+    await fs.mkdir(path.dirname(absTo), { recursive: true });
+    await fs.rename(absFrom, absTo);
+  }
+
+  async exists(relPath: string): Promise<boolean> {
+    const abs = this.resolveSafePath(relPath);
+    return existsSync(abs);
+  }
+
+  async listMarkdown(subdir?: string): Promise<string[]> {
+    this.ensureInit();
+    const root = subdir
+      ? this.resolveSafePath(subdir)
+      : this.cacheDir;
+    const out: string[] = [];
+    await this.walk(root, root, out, true);
+    return out.sort();
+  }
+
+  async listDir(subdir?: string): Promise<{ files: string[]; dirs: string[] }> {
+    const root = subdir ? this.resolveSafePath(subdir) : this.cacheDir;
+    const entries = await fs.readdir(root, { withFileTypes: true });
+    const files: string[] = [];
+    const dirs: string[] = [];
+    for (const e of entries) {
+      if (e.name === ".git" || e.name === ".obsidian") continue;
+      if (e.isDirectory()) dirs.push(e.name);
+      else files.push(e.name);
+    }
+    return { files: files.sort(), dirs: dirs.sort() };
+  }
+
+  async createDirectory(relPath: string): Promise<void> {
+    this.assertWriteAllowed(relPath);
+    const abs = this.resolveSafePath(relPath);
+    await fs.mkdir(abs, { recursive: true });
+    const keep = path.join(abs, ".gitkeep");
+    if (!existsSync(keep)) {
+      await fs.writeFile(keep, "", "utf8");
+    }
+  }
+
+  private async walk(
+    rootDir: string,
+    current: string,
+    out: string[],
+    mdOnly: boolean,
+  ): Promise<void> {
+    const entries = await fs.readdir(current, { withFileTypes: true });
+    for (const e of entries) {
+      if (e.name === ".git" || e.name === ".obsidian") continue;
+      const abs = path.join(current, e.name);
+      if (e.isDirectory()) {
+        await this.walk(rootDir, abs, out, mdOnly);
+      } else {
+        if (!mdOnly || e.name.endsWith(".md")) {
+          out.push(path.relative(rootDir, abs).replace(/\\/g, "/"));
+        }
+      }
+    }
+  }
+}
+
+export const vaultService = new VaultService();
