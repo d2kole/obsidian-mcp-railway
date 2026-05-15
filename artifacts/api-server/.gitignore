@@ -1,0 +1,6 @@
+dist/
+coverage/
+tests/.tmp/
+playwright-report/
+test-results/
+.playwright/
