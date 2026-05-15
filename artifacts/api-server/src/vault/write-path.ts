@@ -53,8 +53,8 @@ export function buildWriteRejection(
       : allowedPaths.join(", ");
   const hint =
     allowedPaths.length === 0
-      ? "Set OBSIDIAN_WRITE_PATHS on Railway to a comma-separated list of folders the server may write to (e.g. '00-Inbox,Journal')."
-      : `Allowed write paths: ${list}. Either choose a path inside one of those folders, or update the OBSIDIAN_WRITE_PATHS environment variable on Railway.`;
+      ? "Set OBSIDIAN_WRITE_PATHS on Railway to a comma-separated list of folders the server may write to (e.g. '00-Inbox,Journal'), then use one of these paths instead."
+      : `Allowed write paths: ${list}. Use one of these paths instead, or update the OBSIDIAN_WRITE_PATHS environment variable on Railway.`;
   return new VaultError(
     `Write rejected: "${relPath}" is outside the allowed write paths.`,
     hint,

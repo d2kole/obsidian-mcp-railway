@@ -122,6 +122,7 @@ describe("assertWriteAllowed", () => {
       expect(e.hint).toContain("00-Inbox");
       expect(e.hint).toContain("Journal");
       expect(e.hint).toContain("OBSIDIAN_WRITE_PATHS");
+      expect(e.hint).toContain("Use one of these paths instead");
     }
   });
 
