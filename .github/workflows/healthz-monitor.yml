@@ -1,0 +1,116 @@
+name: healthz-monitor
+
+# Hits the public /api/healthz endpoint every minute. Each run probes the
+# endpoint 3 times, 20 seconds apart. If *all 3* probes return a non-200
+# response, the monitor pages via Pushover with the failing check name(s).
+#
+# Required repository secrets:
+#   HEALTHZ_URL          - e.g. https://obsidian-mcp-railway.up.railway.app/api/healthz
+#   PUSHOVER_APP_TOKEN   - Application API token from pushover.net
+#   PUSHOVER_USER_KEY    - Your user key from pushover.net
+#
+# This workflow is intentionally hosted on GitHub Actions (not Railway cron)
+# so it can still alert when Railway itself is unreachable.
+
+on:
+  schedule:
+    - cron: "* * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: healthz-monitor
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Probe /api/healthz 3 times
+        env:
+          HEALTHZ_URL: ${{ secrets.HEALTHZ_URL }}
+          PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+        run: |
+          set -u
+          if [ -z "${HEALTHZ_URL:-}" ]; then
+            echo "HEALTHZ_URL secret is not configured" >&2
+            exit 1
+          fi
+
+          ATTEMPTS=3
+          SLEEP_SECONDS=20
+          fail_count=0
+          last_status=""
+          last_body=""
+          failing_checks=""
+
+          for i in $(seq 1 $ATTEMPTS); do
+            echo "Probe $i/$ATTEMPTS -> $HEALTHZ_URL"
+            body_file="$(mktemp)"
+            status="$(curl -sS -o "$body_file" -w '%{http_code}' \
+              --max-time 10 --connect-timeout 5 "$HEALTHZ_URL" || echo '000')"
+            body="$(cat "$body_file")"
+            rm -f "$body_file"
+            echo "  status=$status"
+
+            if [ "$status" != "200" ]; then
+              fail_count=$((fail_count + 1))
+              last_status="$status"
+              last_body="$body"
+              # Extract names of failing checks from the JSON body, if present.
+              names="$(printf '%s' "$body" \
+                | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    names = [c.get("name","?") for c in data.get("checks", []) if not c.get("ok")]
+    print(",".join(names))
+except Exception:
+    pass
+' 2>/dev/null || true)"
+              if [ -n "$names" ]; then
+                failing_checks="$names"
+              elif [ -z "$failing_checks" ]; then
+                failing_checks="http_$status"
+              fi
+            fi
+
+            if [ "$i" -lt "$ATTEMPTS" ]; then
+              sleep "$SLEEP_SECONDS"
+            fi
+          done
+
+          if [ "$fail_count" -lt "$ATTEMPTS" ]; then
+            echo "Healthy enough ($fail_count/$ATTEMPTS failed); no alert."
+            exit 0
+          fi
+
+          echo "All $ATTEMPTS probes failed. Failing checks: ${failing_checks:-unknown}"
+
+          if [ -z "${PUSHOVER_APP_TOKEN:-}" ] || [ -z "${PUSHOVER_USER_KEY:-}" ]; then
+            echo "Pushover secrets not configured; cannot send notification" >&2
+            exit 1
+          fi
+
+          title="obsidian-mcp-railway DOWN"
+          message="3 consecutive /api/healthz failures. Failing checks: ${failing_checks:-unknown}. Last HTTP status: ${last_status}. URL: ${HEALTHZ_URL}"
+
+          http_code="$(curl -sS -o /tmp/pushover.out -w '%{http_code}' \
+            --max-time 10 \
+            --form-string "token=${PUSHOVER_APP_TOKEN}" \
+            --form-string "user=${PUSHOVER_USER_KEY}" \
+            --form-string "title=${title}" \
+            --form-string "message=${message}" \
+            --form-string "priority=1" \
+            https://api.pushover.net/1/messages.json || echo '000')"
+          echo "Pushover response ($http_code): $(cat /tmp/pushover.out)"
+          if [ "$http_code" != "200" ]; then
+            echo "Pushover send failed" >&2
+            exit 1
+          fi
+          # Pushover delivered successfully — exit 0 so the Actions UI only
+          # shows red runs when the *monitor itself* is broken (failed probe
+          # script, missing secrets, Pushover API down). The Pushover ping is
+          # the signal of record for the actual outage.
+          exit 0

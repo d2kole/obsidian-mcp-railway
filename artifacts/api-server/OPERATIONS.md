@@ -84,7 +84,38 @@ Two options:
 - **`MAX_WRITES_PER_HOUR=20`** is the safety net against runaway tool calls. Adjust upward only when you trust the workflow.
 - **`obsidian_execute_command` is intentionally not implemented** (too much blast radius — vault contents only, no command-palette dispatch).
 
+## Pushover alerting (uptime monitor)
+
+A GitHub Actions cron at `.github/workflows/healthz-monitor.yml` probes
+`/api/healthz` every minute and pages via Pushover after **3 consecutive
+non-200 responses**. The monitor is intentionally hosted on GitHub Actions
+(not Railway cron) so it still fires when Railway itself is unreachable.
+
+Each run performs 3 probes, 20 seconds apart, and only sends a notification
+when all 3 fail. The notification body includes the failing check name(s)
+parsed from the `/api/healthz` JSON response (e.g. `git_fetch_dry_run`,
+`vault_cache_present`, `mcp_handler_registered`) and the last HTTP status.
+
+### Setup (one time)
+
+1. Create a [Pushover](https://pushover.net) account and install the app on your phone.
+2. On the Pushover dashboard, copy your **User Key**.
+3. Create a new **Application/API Token** named `obsidian-mcp-railway` and copy its token.
+4. In this GitHub repo → Settings → Secrets and variables → Actions, add:
+   - `HEALTHZ_URL` = `https://<your-railway-domain>/api/healthz`
+   - `PUSHOVER_APP_TOKEN` = the application token from step 3
+   - `PUSHOVER_USER_KEY` = your user key from step 2
+5. Trigger the workflow once manually (Actions → `healthz-monitor` → Run workflow) to verify
+   it succeeds against a healthy server. To verify the alert path, temporarily point
+   `HEALTHZ_URL` at an unreachable URL and re-run; you should receive a Pushover ping.
+
+### Tuning
+
+- Change probe count or spacing by editing `ATTEMPTS` / `SLEEP_SECONDS` in the workflow.
+- Raise `priority=1` to `priority=2` in the workflow if you want emergency-priority pages
+  that bypass quiet hours (Pushover will require acknowledgement).
+- GitHub's scheduled workflows can be delayed under load; expect best-effort 1-minute cadence.
+
 ## Out of scope (future work)
 
-- Pushover alerting on consecutive `/healthz` failures (Phase 2 — set up after deploy with your Pushover key).
 - Conflict resolution on simultaneous Desktop + MCP writes (single-writer pattern avoids this for now).
