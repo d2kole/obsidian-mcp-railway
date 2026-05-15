@@ -1,4 +1,4 @@
-import rateLimit, { MemoryStore, type Store } from "express-rate-limit";
+import { MemoryStore, type Store } from "express-rate-limit";
 import { logger } from "../lib/logger";
 
 /**
@@ -17,17 +17,15 @@ let store: Store | null = null;
 
 export function getWriteRateStore(): Store {
   if (store) return store;
-  const limiter = rateLimit({
-    windowMs: HOUR_MS,
-    limit: 1_000_000, // unused — we read counts via the store directly
-    standardHeaders: true,
-    legacyHeaders: false,
-    store: new MemoryStore(),
-  });
-  // The limiter exposes `.store` after first use; force initialization.
-  // The MemoryStore is created and bound during construction.
-  store = (limiter as unknown as { store: Store }).store;
-  if (!store) throw new Error("express-rate-limit store init failed");
+  const s = new MemoryStore();
+  // Store.init is required before increment(); express-rate-limit normally
+  // calls it on first request, but we use the store directly from the MCP
+  // dispatcher.
+  // express-rate-limit's Store.init expects the full resolved Options type,
+  // but only windowMs is meaningful for MemoryStore. Cast through unknown to
+  // satisfy the strict signature without pulling in the entire Options shape.
+  (s.init as (opts: { windowMs: number }) => void)({ windowMs: HOUR_MS });
+  store = s;
   return store;
 }
 

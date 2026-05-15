@@ -1,0 +1,65 @@
+import "../test/env";
+import { describe, it, expect } from "vitest";
+import { VaultService, VaultError } from "./service";
+
+function primed(): VaultService {
+  const svc = new VaultService();
+  // Bypass init() (which would clone a real git repo) by priming internals.
+  const internals = svc as unknown as {
+    initialized: boolean;
+    cacheDir: string;
+    writePaths: string[];
+    git: unknown;
+  };
+  internals.initialized = true;
+  internals.cacheDir = "/tmp/vault-cache-test";
+  internals.writePaths = ["00-Inbox", "01-Daily", "Captures"];
+  internals.git = {};
+  return svc;
+}
+
+describe("VaultService write-path safety", () => {
+  it("isWriteAllowed accepts paths under allowed roots", () => {
+    const svc = primed();
+    expect(svc.isWriteAllowed("00-Inbox/note.md")).toBe(true);
+    expect(svc.isWriteAllowed("01-Daily/2026-05-15.md")).toBe(true);
+    expect(svc.isWriteAllowed("Captures/sub/nested.md")).toBe(true);
+  });
+
+  it("isWriteAllowed rejects paths outside allowed roots", () => {
+    const svc = primed();
+    expect(svc.isWriteAllowed("README.md")).toBe(false);
+    expect(svc.isWriteAllowed("Archive/old.md")).toBe(false);
+    // Prefix-but-not-folder must not slip through.
+    expect(svc.isWriteAllowed("00-InboxImpostor/note.md")).toBe(false);
+  });
+
+  it("assertWriteAllowed throws VaultError outside allowed paths", () => {
+    const svc = primed();
+    expect(() => svc.assertWriteAllowed("Secrets/leak.md")).toThrow(VaultError);
+    expect(() => svc.assertWriteAllowed("00-Inbox/ok.md")).not.toThrow();
+  });
+
+  it("resolveSafePath blocks parent traversal sequences", () => {
+    const svc = primed();
+    expect(() => svc.resolveSafePath("../etc/passwd")).toThrow(VaultError);
+    expect(() => svc.resolveSafePath("00-Inbox/../../escape.md")).toThrow(
+      VaultError,
+    );
+  });
+
+  it("resolveSafePath blocks paths that resolve outside the cache dir", () => {
+    const svc = primed();
+    // Backslashes are normalized to forward slashes; absolute paths get
+    // their leading slash stripped, so /etc/passwd becomes etc/passwd which
+    // resolves safely. We must rely on the .. check here.
+    expect(() => svc.resolveSafePath("..")).toThrow(VaultError);
+  });
+
+  it("resolveSafePath returns a path inside the cache dir for valid input", () => {
+    const svc = primed();
+    const abs = svc.resolveSafePath("00-Inbox/note.md");
+    expect(abs.startsWith("/tmp/vault-cache-test/")).toBe(true);
+    expect(abs.endsWith("/00-Inbox/note.md")).toBe(true);
+  });
+});
