@@ -44,6 +44,19 @@ Thumbs.db
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
 
+# Build & coverage outputs
+coverage/
+test-results/
+playwright-report/
+
+# Local env files — never commit real secrets
+.env
+.env.*
+!.env.example
+
+# Temp vault caches created by dev-bootstrap.sh
+/tmp/obsidian-mcp-dev/
+
 # Replit
 .cache/
 .local/
