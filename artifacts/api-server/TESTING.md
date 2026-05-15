@@ -79,7 +79,11 @@ Rules:
 
 ## Out of scope for this gate
 
-- ESLint is not yet wired into the artifact. If a future task adds it,
-  prepend `lint &&` to the `verify` chain.
+- **ESLint** is not yet wired into this artifact (no `.eslintrc*` /
+  `eslint.config.*` exists at the artifact or repo root). Task #6's
+  acceptance criteria mention `lint` in the `verify` chain as a
+  forward-looking target; until an eslint config lands, `verify`
+  chains `typecheck -> test -> test:e2e` only. When a future task
+  adds ESLint, prepend `lint &&` to the `verify` script.
 - CI thresholds and PR gating live in the CI pipeline task; this
   document covers local verification only.

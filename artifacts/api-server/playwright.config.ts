@@ -16,7 +16,7 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "pnpm run start:http",
+    command: "pnpm run build && pnpm run start:http",
     url: `${BASE_URL}/`,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
