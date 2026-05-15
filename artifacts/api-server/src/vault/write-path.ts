@@ -26,6 +26,20 @@ export function normalizeRelativePath(relPath: string): string {
 }
 
 /**
+ * True if `relPath` looks like an absolute path in any common form:
+ *   - POSIX absolute: starts with `/`
+ *   - Windows absolute: starts with `\` or `<letter>:`
+ * Vault paths must always be relative to the cache root.
+ */
+export function isAbsoluteLike(relPath: string): boolean {
+  if (relPath.length === 0) return false;
+  if (relPath[0] === "/" || relPath[0] === "\\") return true;
+  // Windows drive letter, e.g. "C:\Users" or "C:/Users".
+  if (/^[A-Za-z]:[\\/]/.test(relPath)) return true;
+  return false;
+}
+
+/**
  * Build a descriptive VaultError for a rejected write, naming the allowlist
  * and giving the user a concrete next action.
  */
@@ -53,6 +67,7 @@ export function isWriteAllowed(
   allowedPaths: readonly string[],
 ): boolean {
   if (allowedPaths.length === 0) return false;
+  if (isAbsoluteLike(relPath)) return false;
   const cleaned = normalizeRelativePath(relPath);
   if (cleaned === "" || cleaned === "/") return false;
   if (containsTraversal(cleaned)) return false;
@@ -92,6 +107,16 @@ export function containsTraversal(cleaned: string): boolean {
  * the cache. Synchronous string-level guard — does not touch the filesystem.
  */
 export function resolveSafePath(cacheDir: string, relPath: string): string {
+  // Reject absolute paths up front — vault paths are ALWAYS relative to
+  // the cache root. Silently stripping a leading slash would conflate
+  // "/etc/passwd" with "etc/passwd" and is a known traversal foot-gun.
+  if (isAbsoluteLike(relPath)) {
+    throw new VaultError(
+      `Invalid path: "${relPath}" is absolute.`,
+      "Use a path relative to the vault root (e.g. '00-Inbox/note.md').",
+    );
+  }
+
   const cleaned = normalizeRelativePath(relPath);
 
   if (containsTraversal(cleaned)) {
@@ -109,14 +134,9 @@ export function resolveSafePath(cacheDir: string, relPath: string): string {
     );
   }
 
-  const abs = path.resolve(cacheDir, cleaned);
-  if (abs !== cacheDir && !abs.startsWith(cacheDir + path.sep)) {
-    throw new VaultError(
-      `Invalid path: "${relPath}" escapes the vault root.`,
-      "Use a path relative to the vault root.",
-    );
-  }
-  return abs;
+  // After absolute-path + traversal + NUL rejection, path.resolve is
+  // guaranteed to land inside cacheDir, so we can safely return it.
+  return path.resolve(cacheDir, cleaned);
 }
 
 /**

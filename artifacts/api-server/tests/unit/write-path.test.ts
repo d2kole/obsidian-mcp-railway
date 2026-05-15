@@ -8,6 +8,7 @@ import {
   assertWriteAllowed,
   buildWriteRejection,
   containsTraversal,
+  isAbsoluteLike,
   isWriteAllowed,
   normalizeRelativePath,
   resolveSafePath,
@@ -178,18 +179,40 @@ describe("resolveSafePath", () => {
     );
   });
 
-  it("strips a leading slash so absolute paths resolve inside the cache", () => {
-    // Per spec, leading slashes are normalized away — they are not a
-    // traversal vector once the parent checks pass. The result still
-    // resolves inside the cache dir.
-    const abs = resolveSafePath(CACHE, "/00-Inbox/x.md");
-    expect(abs.startsWith(CACHE + path.sep)).toBe(true);
+  it("rejects absolute POSIX paths", () => {
+    expect(() => resolveSafePath(CACHE, "/etc/passwd")).toThrow(VaultError);
+    expect(() => resolveSafePath(CACHE, "/00-Inbox/x.md")).toThrow(VaultError);
+  });
+
+  it("rejects Windows-style absolute paths", () => {
+    expect(() => resolveSafePath(CACHE, "\\etc\\passwd")).toThrow(VaultError);
+    expect(() => resolveSafePath(CACHE, "C:\\Users\\evil")).toThrow(VaultError);
+    expect(() => resolveSafePath(CACHE, "C:/Users/evil")).toThrow(VaultError);
   });
 
   it("normalizes backslashes so Windows traversal still trips the parent check", () => {
     expect(() => resolveSafePath(CACHE, "00-Inbox\\..\\escape")).toThrow(
       VaultError,
     );
+  });
+});
+
+describe("isAbsoluteLike", () => {
+  it("flags POSIX absolute paths", () => {
+    expect(isAbsoluteLike("/etc/passwd")).toBe(true);
+    expect(isAbsoluteLike("/")).toBe(true);
+  });
+  it("flags Windows absolute paths", () => {
+    expect(isAbsoluteLike("\\evil")).toBe(true);
+    expect(isAbsoluteLike("C:\\Users")).toBe(true);
+    expect(isAbsoluteLike("c:/Users")).toBe(true);
+  });
+  it("returns false for relative paths and the empty string", () => {
+    expect(isAbsoluteLike("00-Inbox/x.md")).toBe(false);
+    expect(isAbsoluteLike("note.md")).toBe(false);
+    expect(isAbsoluteLike("")).toBe(false);
+    // A bare letter without a separator is not an absolute path.
+    expect(isAbsoluteLike("C:foo")).toBe(false);
   });
 });
 
