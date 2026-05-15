@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter @workspace/api-server exec playwright install --with-deps chromium
+
+      - name: Typecheck
+        run: pnpm --filter @workspace/api-server run typecheck
+
+      - name: Build
+        run: pnpm --filter @workspace/api-server run build
+
+      - name: Verify all (vault, write-path, rate-limit, oauth, tools, routes, e2e:*)
+        run: pnpm --filter @workspace/api-server run verify:all
+
+      - name: Upload verify evidence log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-evidence
+          path: artifacts/api-server/tests/.evidence/
+          if-no-files-found: warn
+
+      - name: Upload coverage HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: artifacts/api-server/coverage/
+          if-no-files-found: warn
+
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: artifacts/api-server/test-results/
+          if-no-files-found: ignore

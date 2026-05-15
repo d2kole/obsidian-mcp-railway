@@ -21,17 +21,18 @@ export default defineConfig({
         "src/**/*.d.ts",
         "src/index.ts",
       ],
-      // Starting gate per Task #6 spec: 70% lines / 70% statements /
-      // 60% functions / 60% branches. `test:coverage` will fail at the
-      // current ~25% baseline — that gap is the explicit work downstream
-      // TDD tasks (#7-#11) close. `test:coverage` is intentionally NOT in
-      // the `verify` chain (verify gates correctness, coverage gates
-      // sufficiency); see TESTING.md.
+      // Project-wide minimums per Task #17 spec (CI pipeline & coverage):
+      //   lines 80%, statements 80%, functions 70%, branches 75%.
+      // Per-module higher bars (vault 90%, oauth 90%, write-path 95%,
+      // rate-limit 95%) are enforced by their own `verify:<feature>`
+      // scripts and remain the source of truth — see package.json.
+      // `test:coverage` is NOT in the `verify:all` chain; verify:all
+      // gates correctness via per-feature scripts.
       thresholds: {
-        lines: 70,
-        functions: 60,
-        statements: 70,
-        branches: 60,
+        lines: 80,
+        functions: 70,
+        statements: 80,
+        branches: 75,
       },
     },
   },

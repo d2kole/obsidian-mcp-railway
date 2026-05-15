@@ -129,5 +129,69 @@ gap instead.
   chain has the correct shape today; a future task that lands an
   eslint config can replace the placeholder body without touching
   `verify`.
-- CI thresholds and PR gating live in the CI pipeline task (#17);
-  this document covers local verification only.
+
+## The `verify:all` gate (Task #16)
+
+Before marking ANY task in the TDD batch complete, run:
+
+```bash
+pnpm --filter @workspace/api-server run verify:all
+```
+
+This invokes `scripts/verify.mjs`, which:
+
+1. Reads `package.json` and confirms every expected `verify:<feature>`
+   script is present. The expected list is hard-coded in the runner:
+   `vault`, `write-path`, `rate-limit`, `oauth`, `tools`, `routes`,
+   `e2e:write`, `e2e:oauth`, `e2e:failure`. If any is missing the
+   runner exits non-zero and refuses to run the rest — so a future
+   task cannot sneak in without its own gate.
+2. Runs each `verify:*` script in series, capturing stdout/stderr.
+3. Writes a combined evidence log to
+   `tests/.evidence/<ISO-timestamp>.log` with a per-feature
+   PASS/FAIL summary header followed by the full output of every run.
+4. Exits non-zero if any feature failed.
+
+When marking a task complete, attach the evidence log path to the
+task summary (e.g. `tests/.evidence/2026-05-15T22-30-00-000Z.log`).
+The same log is uploaded as a CI artifact in `.github/workflows/ci.yml`.
+
+### Local skip for Playwright (`SKIP_PLAYWRIGHT=1`)
+
+Replit's NixOS sandbox doesn't ship the system libraries (libglib,
+libnss, etc.) that Chromium needs — `playwright install --with-deps`
+relies on apt and isn't supported. To run `verify:all` locally on
+Replit, set:
+
+```bash
+SKIP_PLAYWRIGHT=1 pnpm --filter @workspace/api-server run verify:all
+```
+
+This skips `verify:e2e:oauth` only. CI **never** sets this — the
+GitHub Actions runner installs system deps via apt, so the same gate
+runs strict on every push and PR. Treat the skip as an
+environment-specific escape hatch, not a way to silence a real
+failure.
+
+## CI pipeline (Task #17)
+
+`.github/workflows/ci.yml` runs on every push and PR:
+
+1. Install pnpm + Node 20 with cache.
+2. Cache and install Playwright Chromium (browsers are required by
+   `verify:e2e:oauth`).
+3. `pnpm --filter @workspace/api-server run typecheck`.
+4. `pnpm --filter @workspace/api-server run build`.
+5. `pnpm --filter @workspace/api-server run verify:all`.
+6. Upload `tests/.evidence/` and `coverage/` as build artifacts (always);
+   upload `test-results/` (Playwright traces) on failure.
+
+Coverage thresholds are enforced in two layers:
+
+- **Project-wide** (`vitest.config.ts`): 80% lines / 80% statements /
+  70% functions / 75% branches. Gates `pnpm test:coverage`.
+- **Per-module** (each `verify:<feature>` script): vault 90%, oauth 90%,
+  write-path 95%, rate-limit 95%, tools 85%, routes 80%. Gated as
+  part of `verify:all` (so a regression breaks the build).
+
+Never lower a threshold to make CI pass — fix the test gap.

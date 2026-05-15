@@ -175,6 +175,29 @@ If you suspect every device is compromised, rotate `OAUTH_CLIENT_SECRET` and
 `SESSION_ENCRYPTION_KEY` in Railway and redeploy — that invalidates every
 issued token at once.
 
+## Pre-merge / pre-deploy gate (Task #16, Task #17)
+
+Before merging or deploying any change to this artifact:
+
+1. Run `pnpm --filter @workspace/api-server run verify:all` locally and
+   confirm it exits 0. The evidence log at
+   `artifacts/api-server/tests/.evidence/<timestamp>.log` is the audit
+   trail — keep the path in your task notes.
+2. Confirm the latest CI run on the deploying commit is green
+   (`.github/workflows/ci.yml`). The CI job uploads the same evidence
+   log and the coverage HTML as build artifacts; download them from
+   the run's "Artifacts" panel if you need to investigate.
+3. Railway does **not** automatically gate deploy on CI status — it
+   redeploys whenever the watched branch advances. Treat a red CI run
+   as a hard "do not merge"; if a deploy slipped out before CI
+   completed, roll back via the Railway dashboard rather than
+   patching forward.
+
+A failing `verify:all` is **never** OK to merge — fix the test gap or
+revert the change. Coverage thresholds (vault 90%, oauth 90%,
+write-path 95%, rate-limit 95%, tools 85%, routes 80%, project-wide
+80% lines / 75% branches) are intentionally hard floors.
+
 ## Out of scope (future work)
 
 - Conflict resolution on simultaneous Desktop + MCP writes (single-writer pattern avoids this for now).
