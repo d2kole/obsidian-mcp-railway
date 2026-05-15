@@ -16,6 +16,22 @@ still works end-to-end.
   boots the api-server with fake env vars so no real GitHub, Railway
   volume, or Pushover account is required.
 
+### First-time Playwright setup
+
+The `@playwright/test` npm package is installed automatically with
+`pnpm install`, but Playwright also needs browser binaries for any
+spec that drives a real browser. The current smoke spec uses
+`request.get` only and does **not** need browsers, so a fresh checkout
+can run `pnpm verify` immediately. As soon as a spec lands that uses
+`page.goto` (e.g. the OAuth + MCP browser flow in Task #13), run:
+
+```
+pnpm --filter @workspace/api-server exec playwright install --with-deps chromium
+```
+
+once per environment. If that step is skipped, browser-driven specs
+will fail with `browserType.launch: Executable doesn't exist`.
+
 ## Scripts
 
 | Script | What it does |
@@ -29,6 +45,7 @@ still works end-to-end.
 | `pnpm --filter @workspace/api-server typecheck` | `tsc --noEmit`. |
 | `pnpm --filter @workspace/api-server lint` | Placeholder (no eslint config wired yet — see "Out of scope"). Exits 0 so it can stay in the `verify` chain. |
 | `pnpm --filter @workspace/api-server verify` | Chains `lint → typecheck → test:unit → test:integration → test:e2e`. This is the verification gate union. |
+| `pnpm --filter @workspace/api-server verify:test-infra` | Task #6's own per-task gate: typecheck + the three smoke tests + the ephemeral-remote fixture test + the healthz e2e. Models the `verify:<feature>` convention for downstream tasks. |
 
 ## Verification gate convention
 

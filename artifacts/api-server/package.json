@@ -17,7 +17,8 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "lint": "echo 'lint: no eslint config wired yet (see TESTING.md)' && exit 0",
-    "verify": "pnpm run lint && pnpm run typecheck && pnpm run test:unit && pnpm run test:integration && pnpm run test:e2e"
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run test:unit && pnpm run test:integration && pnpm run test:e2e",
+    "verify:test-infra": "pnpm run typecheck && vitest run tests/unit/smoke.test.ts tests/integration/smoke.test.ts tests/integration/git-remote.fixture.test.ts && playwright test tests/e2e/healthz.spec.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
