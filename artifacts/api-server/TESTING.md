@@ -20,12 +20,15 @@ still works end-to-end.
 
 | Script | What it does |
 | --- | --- |
-| `pnpm --filter @workspace/api-server test` | Runs all Vitest suites once and exits. |
+| `pnpm --filter @workspace/api-server test` | Runs all Vitest suites (unit + integration) once. |
+| `pnpm --filter @workspace/api-server test:unit` | Vitest, restricted to `src/**` and `tests/unit/**`. |
+| `pnpm --filter @workspace/api-server test:integration` | Vitest, restricted to `tests/integration/**`. |
 | `pnpm --filter @workspace/api-server test:watch` | Re-runs Vitest on change. |
-| `pnpm --filter @workspace/api-server test:coverage` | Runs Vitest with v8 coverage. Reports go to `coverage/`. Starting threshold is 70% lines (raise per task). |
-| `pnpm --filter @workspace/api-server test:e2e` | Boots the api-server and runs Playwright. |
+| `pnpm --filter @workspace/api-server test:coverage` | Vitest with v8 coverage. Reports go to `coverage/`. Thresholds start at the current baseline (25% lines / 60% branches) and **must be raised** by each feature task as it lands its tests — long-term target is 70% lines / 60% branches. |
+| `pnpm --filter @workspace/api-server test:e2e` | Boots the api-server (build + start:http) and runs Playwright. |
 | `pnpm --filter @workspace/api-server typecheck` | `tsc --noEmit`. |
-| `pnpm --filter @workspace/api-server verify` | Chains `typecheck → test → test:e2e`. This is the verification gate union. |
+| `pnpm --filter @workspace/api-server lint` | Placeholder (no eslint config wired yet — see "Out of scope"). Exits 0 so it can stay in the `verify` chain. |
+| `pnpm --filter @workspace/api-server verify` | Chains `lint → typecheck → test:unit → test:integration → test:e2e`. This is the verification gate union. |
 
 ## Verification gate convention
 
@@ -77,13 +80,31 @@ Rules:
 - The ephemeral remote runs entirely on the local filesystem (no
   network).
 
+## Coverage threshold ratchet
+
+The `coverage.thresholds` block in `vitest.config.ts` starts at the
+current baseline so `test:coverage` is green from day one. **Every
+feature task in this batch must raise the corresponding numbers** when
+it lands its tests:
+
+- Tasks #7-11 (TDD: VaultService, write-paths, rate limiter, OAuth,
+  MCP tools): bump `lines` and `statements` thresholds to match the
+  new actual coverage of the modules they cover.
+- Task #16 (verification gate enforcement): final ratchet to the
+  long-term target (70% lines / 60% branches).
+- Task #17 (CI pipeline): wires `test:coverage` into CI so a
+  regression below the current threshold breaks the build.
+
+Never lower a threshold to make a failing build pass — fix the test
+gap instead.
+
 ## Out of scope for this gate
 
 - **ESLint** is not yet wired into this artifact (no `.eslintrc*` /
-  `eslint.config.*` exists at the artifact or repo root). Task #6's
-  acceptance criteria mention `lint` in the `verify` chain as a
-  forward-looking target; until an eslint config lands, `verify`
-  chains `typecheck -> test -> test:e2e` only. When a future task
-  adds ESLint, prepend `lint &&` to the `verify` script.
-- CI thresholds and PR gating live in the CI pipeline task; this
-  document covers local verification only.
+  `eslint.config.*` exists at the artifact or repo root). The `lint`
+  script in `package.json` is a no-op placeholder so the `verify`
+  chain has the correct shape today; a future task that lands an
+  eslint config can replace the placeholder body without touching
+  `verify`.
+- CI thresholds and PR gating live in the CI pipeline task (#17);
+  this document covers local verification only.
