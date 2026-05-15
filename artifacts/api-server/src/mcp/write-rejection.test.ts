@@ -128,10 +128,15 @@ describe("MCP write_note — write-path rejection payload", () => {
       error: string;
       hint: string;
     };
-    // The absolute-path check fires first (it short-circuits the
-    // allowlist test for "/etc/passwd"), so the hint here is the
-    // path-shape hint, not the allowlist hint. Either is actionable.
-    expect(body.error).toMatch(/absolute|allowed write paths/);
-    expect(body.hint).toMatch(/vault root|OBSIDIAN_WRITE_PATHS/);
+    // assertWriteAllowed runs before resolveSafePath, and isWriteAllowed
+    // explicitly rejects absolute-like inputs, so the user gets the
+    // allowlist-bearing hint with the "Use one of these paths instead"
+    // guidance — same wire contract as the traversal/out-of-allowlist
+    // cases above.
+    expect(body.error).toContain("/etc/passwd");
+    expect(body.hint).toContain("00-Inbox");
+    expect(body.hint).toContain("Journal");
+    expect(body.hint).toContain("OBSIDIAN_WRITE_PATHS");
+    expect(body.hint).toContain("Use one of these paths instead");
   });
 });
