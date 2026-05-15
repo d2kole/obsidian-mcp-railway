@@ -10,6 +10,9 @@ process.env["OAUTH_STORE_PATH"] = storeFile;
 
 async function freshStore(): Promise<typeof import("./store")> {
   const mod = await import("./store");
+  // Flush any pending debounced write from the previous case to disk before
+  // wiping in-memory state — that's what a real restart would observe.
+  mod.flushPersist();
   mod._resetStoreForTests();
   process.env["OAUTH_STORE_PATH"] = storeFile;
   return mod;
@@ -37,6 +40,7 @@ describe("oauth store persistence", () => {
       codeChallengeMethod: "S256",
       scope: "mcp",
     });
+    a.flushPersist();
     expect(fs.existsSync(storeFile)).toBe(true);
 
     // Simulate restart: clear in-memory state, force reload from disk.
@@ -90,6 +94,7 @@ describe("oauth store persistence", () => {
     // The first store still wrote the (already-expired) code, but the new
     // process should ignore it on load and clearExpired should rewrite the file.
     b.clearExpired();
+    b.flushPersist();
     const after = JSON.parse(fs.readFileSync(storeFile, "utf8")) as {
       codes: unknown[];
     };
@@ -102,5 +107,49 @@ describe("oauth store persistence", () => {
     const s = await freshStore();
     const result = s.consumeAuthCode("nonexistent");
     expect(result).toBeNull();
+  });
+
+  it("coalesces a burst of mutations into a single fsync", async () => {
+    const s = await freshStore();
+    // Write the file once so we have a baseline mtime.
+    s.revokeJti("seed");
+    s.flushPersist();
+    const baselineMtime = fs.statSync(storeFile).mtimeMs;
+
+    // Burst of mutations — none should hit disk synchronously.
+    for (let i = 0; i < 50; i++) {
+      s.revokeJti(`burst-${i}`);
+    }
+    expect(fs.statSync(storeFile).mtimeMs).toBe(baselineMtime);
+
+    // A single flush coalesces them into one write.
+    s.flushPersist();
+    const raw = JSON.parse(fs.readFileSync(storeFile, "utf8")) as {
+      revoked: Array<{ jti: string }>;
+    };
+    expect(raw.revoked.map((r) => r.jti)).toContain("burst-49");
+  });
+
+  it("evicts oldest revoked entries past the cap", async () => {
+    const s = await freshStore();
+    const cap = s._internals.REVOKED_CAP;
+    const overflow = 25;
+    const now = Date.now();
+    // Insert cap+overflow entries with increasing expiresAt; oldest expiries
+    // should be evicted first.
+    for (let i = 0; i < cap + overflow; i++) {
+      s.revokeJti(`jti-${i}`, now + i * 1000);
+    }
+    s.flushPersist();
+    const raw = JSON.parse(fs.readFileSync(storeFile, "utf8")) as {
+      revoked: Array<{ jti: string; expiresAt: number }>;
+    };
+    expect(raw.revoked.length).toBe(cap);
+    const jtis = new Set(raw.revoked.map((r) => r.jti));
+    // Earliest entries (smallest expiresAt) are dropped.
+    expect(jtis.has("jti-0")).toBe(false);
+    expect(jtis.has(`jti-${overflow - 1}`)).toBe(false);
+    // Most recent entries are retained.
+    expect(jtis.has(`jti-${cap + overflow - 1}`)).toBe(true);
   });
 });

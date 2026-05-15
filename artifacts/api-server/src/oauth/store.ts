@@ -26,6 +26,17 @@ const revoked = new Map<string, number>();
 
 let loaded = false;
 
+// Debounce window for coalescing rapid mutations into a single fsync.
+const PERSIST_DEBOUNCE_MS = 250;
+// Hard cap on the number of revoked-jti entries kept in memory / on disk.
+// Older entries (smallest expiresAt first) are evicted past this point so a
+// runaway revocation loop cannot fill the volume.
+const REVOKED_CAP = 10_000;
+
+let persistTimer: NodeJS.Timeout | null = null;
+let persistPending = false;
+let exitHooksInstalled = false;
+
 function storePath(): string {
   // Honor OAUTH_STORE_PATH at call time so tests (which import this module
   // after config is already cached) can redirect the file. In production,
@@ -38,6 +49,7 @@ function storePath(): string {
 function ensureLoaded(): void {
   if (loaded) return;
   loaded = true;
+  installExitHooks();
   const file = storePath();
   try {
     const raw = fs.readFileSync(file, "utf8");
@@ -58,11 +70,12 @@ function ensureLoaded(): void {
         if (r.expiresAt > now) revoked.set(r.jti, r.expiresAt);
         else pruned = true;
       }
+      enforceRevokedCap();
       logger.info(
         { file, codes: codes.size, revoked: revoked.size },
         "oauth store loaded from disk",
       );
-      if (pruned) persist();
+      if (pruned) schedulePersist();
     }
   } catch (err: unknown) {
     const e = err as NodeJS.ErrnoException;
@@ -74,7 +87,23 @@ function ensureLoaded(): void {
   }
 }
 
-function persist(): void {
+function enforceRevokedCap(): void {
+  if (revoked.size <= REVOKED_CAP) return;
+  // Evict entries with the soonest expiry first — they're closest to being
+  // garbage-collected anyway, so dropping them costs the least security.
+  const sorted = Array.from(revoked.entries()).sort((a, b) => a[1] - b[1]);
+  const overflow = revoked.size - REVOKED_CAP;
+  for (let i = 0; i < overflow; i++) {
+    const entry = sorted[i];
+    if (entry) revoked.delete(entry[0]);
+  }
+  logger.warn(
+    { kept: revoked.size, evicted: overflow, cap: REVOKED_CAP },
+    "oauth revoked-jti list exceeded cap; oldest entries evicted",
+  );
+}
+
+function persistNow(): void {
   const file = storePath();
   const state: PersistedState = {
     version: 1,
@@ -90,6 +119,46 @@ function persist(): void {
     const e = err as NodeJS.ErrnoException;
     logger.warn({ file, err: e?.message }, "failed to persist oauth store");
   }
+}
+
+function schedulePersist(): void {
+  persistPending = true;
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    if (persistPending) {
+      persistPending = false;
+      persistNow();
+    }
+  }, PERSIST_DEBOUNCE_MS);
+  // Don't keep the event loop alive solely for a pending flush; exit hooks
+  // below ensure data is still flushed on shutdown.
+  persistTimer.unref?.();
+}
+
+export function flushPersist(): void {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  if (persistPending) {
+    persistPending = false;
+    persistNow();
+  }
+}
+
+function installExitHooks(): void {
+  if (exitHooksInstalled) return;
+  exitHooksInstalled = true;
+  // beforeExit fires when the loop is about to drain; sync flush is safe here.
+  // We deliberately do NOT register SIGTERM/SIGINT handlers — installing a
+  // signal listener overrides Node's default termination behavior and can
+  // prevent the process from exiting. The host (server.ts) is responsible
+  // for graceful shutdown; the worst case here is losing the last ~250ms
+  // of debounced mutations on an abrupt kill, which is acceptable.
+  process.on("beforeExit", () => {
+    flushPersist();
+  });
 }
 
 function signingKey(): Uint8Array {
@@ -118,7 +187,7 @@ export function createAuthCode(input: {
     scope: input.scope,
     expiresAt: Date.now() + (input.ttlMs ?? 5 * 60 * 1000),
   });
-  persist();
+  schedulePersist();
   return code;
 }
 
@@ -127,7 +196,7 @@ export function consumeAuthCode(code: string): AuthCode | null {
   const entry = codes.get(code);
   if (!entry) return null;
   codes.delete(code);
-  persist();
+  schedulePersist();
   if (entry.expiresAt < Date.now()) return null;
   return entry;
 }
@@ -206,7 +275,8 @@ export function revokeJti(jti: string, expiresAt?: number): void {
   const cfg = getConfig();
   const ttlMs = cfg.oauth.accessTokenTtlSec * 1000;
   revoked.set(jti, expiresAt ?? Date.now() + ttlMs);
-  persist();
+  enforceRevokedCap();
+  schedulePersist();
 }
 
 export function clearExpired(): void {
@@ -225,12 +295,25 @@ export function clearExpired(): void {
       changed = true;
     }
   }
-  if (changed) persist();
+  if (changed) schedulePersist();
 }
 
 // Test-only helper so unit tests can isolate state between cases.
 export function _resetStoreForTests(): void {
+  // Drop any pending debounced write from the previous test rather than let
+  // it fire after we've cleared in-memory state and corrupt the next case.
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  persistPending = false;
   codes.clear();
   revoked.clear();
   loaded = false;
 }
+
+// Test-only knobs.
+export const _internals = {
+  REVOKED_CAP,
+  PERSIST_DEBOUNCE_MS,
+};
