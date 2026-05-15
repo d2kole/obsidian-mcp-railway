@@ -15,14 +15,24 @@ interface AuthCode {
   expiresAt: number;
 }
 
+interface IssuedTokenMeta {
+  jti: string;
+  clientId: string;
+  scope: string;
+  issuedAt: number;
+  expiresAt: number;
+}
+
 interface PersistedState {
   version: 1;
   codes: AuthCode[];
   revoked: Array<{ jti: string; expiresAt: number }>;
+  issued?: IssuedTokenMeta[];
 }
 
 const codes = new Map<string, AuthCode>();
 const revoked = new Map<string, number>();
+const issued = new Map<string, IssuedTokenMeta>();
 
 let loaded = false;
 
@@ -70,9 +80,13 @@ function ensureLoaded(): void {
         if (r.expiresAt > now) revoked.set(r.jti, r.expiresAt);
         else pruned = true;
       }
+      for (const t of parsed.issued ?? []) {
+        if (t.expiresAt > now) issued.set(t.jti, t);
+        else pruned = true;
+      }
       enforceRevokedCap();
       logger.info(
-        { file, codes: codes.size, revoked: revoked.size },
+        { file, codes: codes.size, revoked: revoked.size, issued: issued.size },
         "oauth store loaded from disk",
       );
       if (pruned) schedulePersist();
@@ -109,6 +123,7 @@ function persistNow(): void {
     version: 1,
     codes: Array.from(codes.values()),
     revoked: Array.from(revoked.entries()).map(([jti, expiresAt]) => ({ jti, expiresAt })),
+    issued: Array.from(issued.values()),
   };
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -234,13 +249,56 @@ export async function issueAccessToken(input: {
     .setIssuedAt()
     .setExpirationTime(expSec)
     .sign(signingKey());
+  ensureLoaded();
+  const expiresAt = expSec * 1000;
+  issued.set(jti, {
+    jti,
+    clientId: input.clientId,
+    scope: input.scope,
+    issuedAt: Date.now(),
+    expiresAt,
+  });
+  schedulePersist();
   return {
     token,
     clientId: input.clientId,
     scope: input.scope,
     jti,
-    expiresAt: expSec * 1000,
+    expiresAt,
   };
+}
+
+export interface ActiveTokenInfo {
+  jti: string;
+  clientId: string;
+  scope: string;
+  issuedAt: number;
+  expiresAt: number;
+}
+
+export function listActiveTokens(): ActiveTokenInfo[] {
+  ensureLoaded();
+  const now = Date.now();
+  const out: ActiveTokenInfo[] = [];
+  for (const t of issued.values()) {
+    if (t.expiresAt <= now) continue;
+    if (revoked.has(t.jti)) continue;
+    out.push({ ...t });
+  }
+  out.sort((a, b) => b.issuedAt - a.issuedAt);
+  return out;
+}
+
+export function isTokenIssued(jti: string): boolean {
+  ensureLoaded();
+  const t = issued.get(jti);
+  if (!t) return false;
+  if (t.expiresAt <= Date.now()) return false;
+  // A token that's already revoked is no longer "active" from the admin
+  // endpoint's perspective — treat it as gone so repeated revoke calls
+  // surface the documented 404 instead of pretending to do work.
+  if (revoked.has(jti)) return false;
+  return true;
 }
 
 export async function lookupAccessToken(
@@ -295,6 +353,12 @@ export function clearExpired(): void {
       changed = true;
     }
   }
+  for (const [k, t] of issued) {
+    if (t.expiresAt < now) {
+      issued.delete(k);
+      changed = true;
+    }
+  }
   if (changed) schedulePersist();
 }
 
@@ -309,6 +373,7 @@ export function _resetStoreForTests(): void {
   persistPending = false;
   codes.clear();
   revoked.clear();
+  issued.clear();
   loaded = false;
 }
 

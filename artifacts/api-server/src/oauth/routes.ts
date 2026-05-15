@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import {
   createAuthCode,
@@ -6,9 +7,36 @@ import {
   issueAccessToken,
   lookupAccessToken,
   clearExpired,
+  listActiveTokens,
+  isTokenIssued,
+  revokeJti,
 } from "./store";
 import { getConfig } from "../lib/config";
 import { logger } from "../lib/logger";
+
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
+
+function requireAdmin(req: Request, res: Response, next: NextFunction): void {
+  const cfg = getConfig();
+  const header = req.headers.authorization ?? "";
+  const m = /^Bearer\s+(.+)$/i.exec(header);
+  if (!m || !timingSafeEqualStr(m[1]!, cfg.oauth.personalAuthToken)) {
+    res.status(401)
+      .header("WWW-Authenticate", `Bearer realm="obsidian-mcp-railway-admin"`)
+      .json({
+        error: "unauthorized",
+        error_description:
+          "Admin endpoints require Authorization: Bearer <PERSONAL_AUTH_TOKEN>.",
+      });
+    return;
+  }
+  next();
+}
 
 setInterval(clearExpired, 5 * 60 * 1000).unref();
 
@@ -298,6 +326,45 @@ export function buildOAuthRouter(): IRouter {
       expires_in: cfg.oauth.accessTokenTtlSec,
       scope: entry.scope,
     });
+  });
+
+  // Admin endpoints — gated by PERSONAL_AUTH_TOKEN as a Bearer credential.
+  // These let you list active access tokens and revoke a specific one without
+  // rotating OAUTH_CLIENT_SECRET / SESSION_ENCRYPTION_KEY (which would log out
+  // every device). Revocations persist via the OAuth store.
+  router.get("/admin/tokens", requireAdmin, (_req, res) => {
+    const tokens = listActiveTokens();
+    res.json({
+      tokens: tokens.map((t) => ({
+        jti: t.jti,
+        client_id: t.clientId,
+        scope: t.scope,
+        issued_at: t.issuedAt,
+        expires_at: t.expiresAt,
+      })),
+    });
+  });
+
+  router.post("/admin/tokens/:jti/revoke", requireAdmin, (req, res) => {
+    const raw = req.params["jti"];
+    const jti = typeof raw === "string" ? raw : "";
+    if (!jti) {
+      res.status(400).json({
+        error: "invalid_request",
+        error_description: "Missing jti path parameter.",
+      });
+      return;
+    }
+    if (!isTokenIssued(jti)) {
+      res.status(404).json({
+        error: "not_found",
+        error_description: "No active token with that jti. It may already be expired or revoked.",
+      });
+      return;
+    }
+    revokeJti(jti);
+    logger.info({ jti }, "access token revoked via admin endpoint");
+    res.json({ revoked: true, jti });
   });
 
   return router;

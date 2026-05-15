@@ -137,6 +137,44 @@ The heartbeat reuses the same three secrets as healthz-monitor
 beyond the alerting runbook above. Adjust the cron in the workflow file to
 change the time of day.
 
+## Revoking a single device's session
+
+If you need to kick a specific Claude client off the server (lost iPad, leaked
+token, suspicious access from a device you don't recognize) without logging
+out every other device, use the admin endpoints. They're gated by the same
+`PERSONAL_AUTH_TOKEN` you type into the OAuth login form, sent as a Bearer
+credential. Revocations are written to the OAuth store on the persistent
+volume and survive restarts.
+
+**1. List active access tokens:**
+
+```bash
+curl -s https://<your-railway-domain>/admin/tokens \
+  -H "Authorization: Bearer $PERSONAL_AUTH_TOKEN" | jq
+```
+
+Each entry has a `jti` (token id), `client_id`, `scope`, `issued_at`, and
+`expires_at` (both in ms since epoch). Pick the `jti` of the session you want
+to terminate — `issued_at` is usually enough to identify the right one if you
+remember roughly when each device was last paired.
+
+**2. Revoke that token:**
+
+```bash
+curl -s -X POST \
+  https://<your-railway-domain>/admin/tokens/<jti>/revoke \
+  -H "Authorization: Bearer $PERSONAL_AUTH_TOKEN"
+```
+
+A `200` with `{"revoked": true, "jti": "..."}` confirms the kill. The next
+`/mcp` call from that device returns `401 invalid_token`; other devices keep
+working. The affected client just needs to re-run the OAuth flow to get a
+fresh token.
+
+If you suspect every device is compromised, rotate `OAUTH_CLIENT_SECRET` and
+`SESSION_ENCRYPTION_KEY` in Railway and redeploy — that invalidates every
+issued token at once.
+
 ## Out of scope (future work)
 
 - Conflict resolution on simultaneous Desktop + MCP writes (single-writer pattern avoids this for now).

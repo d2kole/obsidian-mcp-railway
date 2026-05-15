@@ -166,6 +166,80 @@ describe("OAuth PKCE flow", () => {
     expect(verifyPkce("wrong-verifier", challenge)).toBe(false);
   });
 
+  it("admin: lists active tokens, revokes one, immediately rejects further use", async () => {
+    const app = makeApp();
+    const cfg = getConfig();
+
+    // Issue two tokens for two distinct clients.
+    const t1 = await issueAccessToken({
+      clientId: cfg.oauth.clientId,
+      scope: "mcp",
+      ttlSec: 3600,
+    });
+    const t2 = await issueAccessToken({
+      clientId: cfg.oauth.clientId,
+      scope: "mcp",
+      ttlSec: 3600,
+    });
+
+    // Unauthenticated list is rejected.
+    const noAuth = await request(app).get("/admin/tokens");
+    expect(noAuth.status).toBe(401);
+
+    // Wrong token is rejected.
+    const badAuth = await request(app)
+      .get("/admin/tokens")
+      .set("Authorization", "Bearer not-the-real-pat");
+    expect(badAuth.status).toBe(401);
+
+    // Authenticated list includes both jtis.
+    const listRes = await request(app)
+      .get("/admin/tokens")
+      .set("Authorization", `Bearer ${cfg.oauth.personalAuthToken}`);
+    expect(listRes.status).toBe(200);
+    const jtis = (listRes.body.tokens as Array<{ jti: string }>).map((t) => t.jti);
+    expect(jtis).toContain(t1.jti);
+    expect(jtis).toContain(t2.jti);
+
+    // Both tokens still validate before revocation.
+    expect(await lookupAccessToken(t1.token)).not.toBeNull();
+    expect(await lookupAccessToken(t2.token)).not.toBeNull();
+
+    // Revoke t1.
+    const revRes = await request(app)
+      .post(`/admin/tokens/${t1.jti}/revoke`)
+      .set("Authorization", `Bearer ${cfg.oauth.personalAuthToken}`);
+    expect(revRes.status).toBe(200);
+    expect(revRes.body.revoked).toBe(true);
+
+    // t1 is now rejected; t2 still works.
+    expect(await lookupAccessToken(t1.token)).toBeNull();
+    expect(await lookupAccessToken(t2.token)).not.toBeNull();
+
+    // t1 no longer appears in the active list.
+    const listAfter = await request(app)
+      .get("/admin/tokens")
+      .set("Authorization", `Bearer ${cfg.oauth.personalAuthToken}`);
+    const jtisAfter = (listAfter.body.tokens as Array<{ jti: string }>).map(
+      (t) => t.jti,
+    );
+    expect(jtisAfter).not.toContain(t1.jti);
+    expect(jtisAfter).toContain(t2.jti);
+
+    // Revoking an unknown jti returns 404.
+    const missing = await request(app)
+      .post(`/admin/tokens/no-such-jti/revoke`)
+      .set("Authorization", `Bearer ${cfg.oauth.personalAuthToken}`);
+    expect(missing.status).toBe(404);
+
+    // Revoking an already-revoked jti also returns 404 (not a silent 200) so
+    // the operator sees a clear "nothing to do" instead of a misleading success.
+    const dupe = await request(app)
+      .post(`/admin/tokens/${t1.jti}/revoke`)
+      .set("Authorization", `Bearer ${cfg.oauth.personalAuthToken}`);
+    expect(dupe.status).toBe(404);
+  });
+
   it("consumeAuthCode is single-use", () => {
     const cfg = getConfig();
     const code = createAuthCode({
