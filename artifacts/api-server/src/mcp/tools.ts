@@ -105,7 +105,7 @@ export function buildTools(): ToolDef[] {
     {
       name: "search_vault",
       description:
-        "Search note filenames and content. Default mode is fuzzy (typo-tolerant, ranked by relevance). Set mode='exact' for literal substring matching with surrounding context lines. Use this to locate notes when you don't know the exact path.",
+        "Search note filenames and content. Default mode is fuzzy (typo-tolerant, ranked by relevance). Set mode='exact' for literal substring matching with surrounding context lines. Use this when you don't know the exact path of the note you need.",
       inputSchema: z.object({
         query: z.string().min(1),
         mode: z.enum(["fuzzy", "exact"]).default("fuzzy"),
@@ -175,7 +175,7 @@ export function buildTools(): ToolDef[] {
     {
       name: "write_note",
       description:
-        "Create a new note or fully overwrite an existing one. Restricted to OBSIDIAN_WRITE_PATHS. For partial edits, prefer insert_at_heading, insert_at_text_match, or apply_patch.",
+        "Create a new note or fully overwrite an existing one. Restricted to OBSIDIAN_WRITE_PATHS. Use this when seeding a brand-new file or doing a complete rewrite; prefer insert_at_heading, insert_at_text_match, or apply_patch over this for partial edits.",
       inputSchema: z.object({
         path: z.string(),
         content: z.string(),
@@ -190,7 +190,8 @@ export function buildTools(): ToolDef[] {
     },
     {
       name: "append_to_note",
-      description: "Append content to an existing note. Restricted to OBSIDIAN_WRITE_PATHS.",
+      description:
+        "Append content to the end of an existing note inside OBSIDIAN_WRITE_PATHS. Use this when adding a paragraph, line, or block without touching existing content; prefer this over write_note when you do not want to overwrite the file.",
       inputSchema: z.object({
         path: z.string(),
         content: z.string(),
@@ -209,7 +210,8 @@ export function buildTools(): ToolDef[] {
     },
     {
       name: "delete_note",
-      description: "Delete a note. Restricted to OBSIDIAN_WRITE_PATHS. Reversible via git history.",
+      description:
+        "Delete a note from OBSIDIAN_WRITE_PATHS. Use this when permanently removing a file; the change is reversible via git history. Prefer this over write_note with empty content so the file is actually removed from the tree.",
       inputSchema: z.object({ path: z.string() }),
       handler: async (args) => {
         const p = String(args["path"]);
@@ -220,7 +222,8 @@ export function buildTools(): ToolDef[] {
     },
     {
       name: "move_note",
-      description: "Move or rename a note. Both source and destination must be in OBSIDIAN_WRITE_PATHS.",
+      description:
+        "Move or rename a note. Use this when reorganizing files or correcting a path; both source and destination must be inside OBSIDIAN_WRITE_PATHS. Prefer this over delete_note + write_note so git records a single rename.",
       inputSchema: z.object({
         from: z.string(),
         to: z.string(),
@@ -236,7 +239,7 @@ export function buildTools(): ToolDef[] {
     {
       name: "insert_at_heading",
       description:
-        "Insert (or replace) content at a specific markdown heading. Use position='after' to add to the end of the section, 'before' to insert above the heading, 'replace' to overwrite the section body.",
+        "Insert (or replace) content at a specific markdown heading. Use this when you can address content by its '## Heading' anchor; position='after' appends to the section, 'before' inserts above the heading, 'replace' overwrites the section body. Prefer this over apply_patch for heading-anchored edits.",
       inputSchema: z.object({
         path: z.string(),
         heading: z.string(),
@@ -260,7 +263,8 @@ export function buildTools(): ToolDef[] {
     },
     {
       name: "insert_at_block_id",
-      description: "Insert (or replace) content at a specific Obsidian block id (e.g. ^abc123).",
+      description:
+        "Insert (or replace) content at a specific Obsidian block id (e.g. ^abc123). Use this when the note has stable block ids that survive line-number drift; prefer this over apply_patch for block-anchored edits.",
       inputSchema: z.object({
         path: z.string(),
         blockId: z.string(),
@@ -285,7 +289,7 @@ export function buildTools(): ToolDef[] {
     {
       name: "insert_at_text_match",
       description:
-        "Insert content relative to an exact substring in a note. Use this when there is no convenient heading or block id.",
+        "Insert content relative to an exact substring in a note. Use this when there is no convenient heading or block id; prefer insert_at_heading or insert_at_block_id over this when an anchor is available.",
       inputSchema: z.object({
         path: z.string(),
         match: z.string(),
@@ -310,7 +314,7 @@ export function buildTools(): ToolDef[] {
     {
       name: "update_frontmatter",
       description:
-        "Merge keys into the YAML frontmatter of a note. Existing keys are overwritten; other keys are preserved.",
+        "Merge keys into the YAML frontmatter of a note. Use this when adding or updating frontmatter fields without touching the body. Existing keys are overwritten; other keys are preserved. Prefer this over apply_patch for frontmatter-only edits.",
       inputSchema: z.object({
         path: z.string(),
         updates: z.record(z.unknown()),
@@ -333,7 +337,7 @@ export function buildTools(): ToolDef[] {
     {
       name: "apply_patch",
       description:
-        "Apply a unified diff patch to a note. Strict context matching. Read the note first, build the patch from current contents, then apply.",
+        "Apply a unified diff patch to a note with strict context matching. Use this when no heading or block-id anchor is available and you need fine-grained edits. Read the note first, build the patch from current contents, then apply.",
       inputSchema: z.object({
         path: z.string(),
         patch: z.string(),
@@ -350,7 +354,8 @@ export function buildTools(): ToolDef[] {
     },
     {
       name: "list_notes",
-      description: "List all markdown files in the vault, optionally under a subdirectory.",
+      description:
+        "List every markdown file in the vault, optionally scoped to a subdirectory. Use this when you need a full inventory before deciding which note to read or edit.",
       inputSchema: z.object({
         subdir: z.string().optional(),
       }),
@@ -364,7 +369,8 @@ export function buildTools(): ToolDef[] {
     },
     {
       name: "list_directory",
-      description: "List immediate files and subdirectories within a vault directory.",
+      description:
+        "List the immediate files and subdirectories within a vault directory. Use this when exploring the structure one level at a time; prefer this over list_notes for shallow browsing.",
       inputSchema: z.object({
         path: z.string().optional(),
       }),
@@ -378,7 +384,8 @@ export function buildTools(): ToolDef[] {
     },
     {
       name: "create_directory",
-      description: "Create a new directory in the vault. Restricted to OBSIDIAN_WRITE_PATHS.",
+      description:
+        "Create a new directory inside OBSIDIAN_WRITE_PATHS. Use this when seeding a folder before writing notes into it.",
       inputSchema: z.object({ path: z.string() }),
       handler: async (args) => {
         const p = String(args["path"]);
@@ -389,7 +396,8 @@ export function buildTools(): ToolDef[] {
     },
     {
       name: "add_tag",
-      description: "Add a tag to a note's frontmatter (creates frontmatter if missing).",
+      description:
+        "Add a tag to a note's frontmatter, creating the frontmatter block if it does not yet exist. Use this when classifying a note without editing its body.",
       inputSchema: z.object({
         path: z.string(),
         tag: z.string(),
@@ -406,7 +414,8 @@ export function buildTools(): ToolDef[] {
     },
     {
       name: "remove_tag",
-      description: "Remove a tag from a note (frontmatter and inline #tag references).",
+      description:
+        "Remove a tag from a note (both frontmatter and inline #tag references). Use this when reclassifying a note or cleaning up obsolete tags.",
       inputSchema: z.object({
         path: z.string(),
         tag: z.string(),
@@ -424,7 +433,7 @@ export function buildTools(): ToolDef[] {
     {
       name: "rename_tag",
       description:
-        "Rename a tag across the entire vault. Touches every note containing the tag and commits a single batched change.",
+        "Rename a tag across the entire vault, touching every note containing it and committing a single batched change. Use this when consolidating two tag spellings or renaming a category; prefer this over editing notes one by one.",
       inputSchema: z.object({
         from: z.string(),
         to: z.string(),
@@ -456,7 +465,8 @@ export function buildTools(): ToolDef[] {
     },
     {
       name: "list_tags",
-      description: "List every tag found across the vault with usage counts.",
+      description:
+        "List every tag found across the vault with usage counts. Use this when auditing tags before renaming, removing, or consolidating them.",
       inputSchema: z.object({}),
       handler: async () => {
         await vaultService.sync();
@@ -490,7 +500,7 @@ export function buildTools(): ToolDef[] {
     {
       name: "log_journal_entry",
       description:
-        "Append a free-form journal entry to today's daily note. Use this for general notes, observations, or reflections that should land in the journal but are not specifically about an activity Claude performed. Creates the daily note from JOURNAL_PATH_TEMPLATE if it does not exist.",
+        "Append a free-form journal entry to today's daily note. Use this when capturing general notes, observations, or reflections that belong in the journal but are not tied to an activity Claude just performed. Creates the daily note from JOURNAL_PATH_TEMPLATE if it does not exist.",
       inputSchema: z.object({
         entry: z.string().describe("One-paragraph journal entry."),
       }),
@@ -505,7 +515,7 @@ export function buildTools(): ToolDef[] {
     {
       name: "add_journal_activity",
       description:
-        "Record an activity Claude just performed on the user's behalf, under today's daily note '## Activity' section. Use this any time you make changes to the vault so there is an audit trail (e.g. 'Refactored the index of 03-Areas/Health.md and added two new headings').",
+        "Record an activity Claude just performed on the user's behalf, under today's daily note '## Activity' section. Use this when you make changes to the vault so there is an audit trail (e.g. 'Refactored the index of 03-Areas/Health.md and added two new headings'). Prefer this over log_journal_entry whenever the entry describes an action you just took.",
       inputSchema: z.object({
         activity: z
           .string()
