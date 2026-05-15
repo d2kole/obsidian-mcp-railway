@@ -8,13 +8,13 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oauth-store-test-"));
 const storeFile = path.join(tmpDir, "oauth-store.json");
 process.env["OAUTH_STORE_PATH"] = storeFile;
 
-async function freshStore(): Promise<typeof import("./store")> {
+async function freshStore(opts?: { storePathOverride?: string }): Promise<typeof import("./store")> {
   const mod = await import("./store");
   // Flush any pending debounced write from the previous case to disk before
   // wiping in-memory state — that's what a real restart would observe.
   mod.flushPersist();
   mod._resetStoreForTests();
-  process.env["OAUTH_STORE_PATH"] = storeFile;
+  process.env["OAUTH_STORE_PATH"] = opts?.storePathOverride ?? storeFile;
   return mod;
 }
 
@@ -158,12 +158,16 @@ describe("oauth store persistence", () => {
     const blocker = path.join(tmpDir, "blocker-file");
     fs.writeFileSync(blocker, "x");
     const badPath = path.join(blocker, "child", "store.json");
-    process.env["OAUTH_STORE_PATH"] = badPath;
-    const s = await freshStore();
+    const s = await freshStore({ storePathOverride: badPath });
+    // Sanity: the override must actually be in effect for the assertion below
+    // to mean anything. If freshStore ever silently resets the path, this trips.
+    expect(process.env["OAUTH_STORE_PATH"]).toBe(badPath);
     expect(() => {
       s.revokeJti("will-fail-to-persist");
       s.flushPersist();
     }).not.toThrow();
+    // The bad path must not have been created (nothing wrote successfully).
+    expect(fs.existsSync(badPath)).toBe(false);
     // Restore for subsequent tests.
     process.env["OAUTH_STORE_PATH"] = storeFile;
   });

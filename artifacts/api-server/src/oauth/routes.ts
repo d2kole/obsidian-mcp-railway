@@ -307,6 +307,18 @@ export function buildOAuthRouter(): IRouter {
       });
       return;
     }
+    // RFC 6749 §4.1.3: the token endpoint MUST verify that the client
+    // presenting the authorization code is the same client the code was
+    // issued to. Without this check, a code captured from one client could
+    // be redeemed by another.
+    if (body["client_id"] !== entry.clientId) {
+      res.status(400).json({
+        error: "invalid_grant",
+        error_description:
+          "client_id does not match the client this authorization code was issued to.",
+      });
+      return;
+    }
     const verifier = body["code_verifier"];
     if (!verifier || !verifyPkce(verifier, entry.codeChallenge)) {
       res.status(400).json({

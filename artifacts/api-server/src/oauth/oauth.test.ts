@@ -605,6 +605,106 @@ describe("OAuth additional rejection paths (task #10 TDD coverage)", () => {
   });
 });
 
+describe("End-to-end GET /oauth/authorize -> POST /oauth/token integration", () => {
+  it("renders the form on GET, accepts the form POST, and exchanges the issued code at /oauth/token", async () => {
+    const app = makeApp();
+    const cfg = getConfig();
+    const { verifier, challenge } = pkcePair();
+
+    // 1. GET /oauth/authorize — Claude.ai opens the consent page.
+    const getRes = await request(app)
+      .get("/oauth/authorize")
+      .query({
+        response_type: "code",
+        client_id: cfg.oauth.clientId,
+        redirect_uri: "https://claude.ai/cb",
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+        state: "e2e-state",
+        scope: "mcp",
+      });
+    expect(getRes.status).toBe(200);
+    expect(getRes.headers["content-type"]).toMatch(/text\/html/);
+    // The form must round-trip every parameter so the POST has them all.
+    expect(getRes.text).toContain(`name="code_challenge" value="${challenge}"`);
+    expect(getRes.text).toContain(`name="redirect_uri" value="https://claude.ai/cb"`);
+    expect(getRes.text).toContain(`name="state" value="e2e-state"`);
+    expect(getRes.text).toContain(`name="client_id" value="${cfg.oauth.clientId}"`);
+
+    // 2. POST /oauth/authorize — user submits the form with the PAT.
+    const postRes = await request(app)
+      .post("/oauth/authorize")
+      .type("form")
+      .send({
+        response_type: "code",
+        client_id: cfg.oauth.clientId,
+        redirect_uri: "https://claude.ai/cb",
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+        scope: "mcp",
+        state: "e2e-state",
+        auth_token: cfg.oauth.personalAuthToken,
+      });
+    expect(postRes.status).toBe(302);
+    const redirect = new URL(postRes.headers["location"] as string);
+    expect(redirect.origin + redirect.pathname).toBe("https://claude.ai/cb");
+    expect(redirect.searchParams.get("state")).toBe("e2e-state");
+    const code = redirect.searchParams.get("code");
+    expect(code).toBeTruthy();
+
+    // 3. POST /oauth/token — exchange the code for an access token.
+    const tokRes = await request(app)
+      .post("/oauth/token")
+      .type("form")
+      .send({
+        grant_type: "authorization_code",
+        code: code!,
+        redirect_uri: "https://claude.ai/cb",
+        code_verifier: verifier,
+        client_id: cfg.oauth.clientId,
+      });
+    expect(tokRes.status).toBe(200);
+    expect(tokRes.body.token_type).toBe("Bearer");
+    expect(tokRes.body.scope).toBe("mcp");
+    expect(typeof tokRes.body.expires_in).toBe("number");
+
+    // 4. The issued token validates against the store.
+    const looked = await lookupAccessToken(tokRes.body.access_token);
+    expect(looked).not.toBeNull();
+    expect(looked!.clientId).toBe(cfg.oauth.clientId);
+  });
+});
+
+describe("Token endpoint client_id binding", () => {
+  it("rejects /oauth/token when client_id does not match the client the auth code was issued to", async () => {
+    const app = makeApp();
+    const cfg = getConfig();
+    const { verifier, challenge } = pkcePair();
+    // Issue a code bound to a *different* client (simulating an attacker who
+    // captured a code minted for client A and tries to redeem it as client B).
+    const code = createAuthCode({
+      clientId: "some-other-client",
+      redirectUri: "https://claude.ai/cb",
+      codeChallenge: challenge,
+      codeChallengeMethod: "S256",
+      scope: "mcp",
+    });
+    const res = await request(app)
+      .post("/oauth/token")
+      .type("form")
+      .send({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: "https://claude.ai/cb",
+        code_verifier: verifier,
+        client_id: cfg.oauth.clientId,
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("invalid_grant");
+    expect(res.body.error_description).toMatch(/client_id/);
+  });
+});
+
 describe("requireAccessToken middleware", () => {
   function makeProtectedApp() {
     const app = express();
