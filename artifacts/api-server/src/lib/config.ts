@@ -48,6 +48,7 @@ export interface AppConfig {
     sessionSecret: string;
     personalAuthToken: string;
     accessTokenTtlSec: number;
+    storePath: string;
   };
   rateLimit: {
     maxWritesPerHour: number;
@@ -95,6 +96,10 @@ export function loadConfig(mode: "http" | "stdio"): AppConfig {
         ? optional("PERSONAL_AUTH_TOKEN", "stdio-not-used")
         : required("PERSONAL_AUTH_TOKEN"),
       accessTokenTtlSec: optionalNum("OAUTH_ACCESS_TOKEN_TTL_SEC", 86400),
+      storePath: optional(
+        "OAUTH_STORE_PATH",
+        `${optional("VAULT_CACHE_DIR", "/vault-cache")}/.oauth-store.json`,
+      ),
     },
     rateLimit: {
       maxWritesPerHour: optionalNum("MAX_WRITES_PER_HOUR", 20),

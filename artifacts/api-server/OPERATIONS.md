@@ -22,6 +22,7 @@ Single-user remote MCP server that exposes a git-backed Obsidian vault to Claude
 | `JOURNAL_DATE_FORMAT` | no (default `YYYY-MM-DD`) | Date format substituted into `JOURNAL_PATH_TEMPLATE`. |
 | `JOURNAL_ACTIVITY_SECTION` | no (default `## Activity`) | Heading under which `log_to_journal` appends entries. |
 | `VAULT_CACHE_DIR` | no (default `/vault-cache`) | Mount point of the Railway volume. |
+| `OAUTH_STORE_PATH` | no (default `${VAULT_CACHE_DIR}/.oauth-store.json`) | File path where OAuth auth codes and revoked-token IDs are persisted so they survive process restarts (Railway redeploys, crashes). Must live on a persistent volume. |
 | `PORT` | no (default `3000`) | HTTP port. Railway injects this automatically. |
 
 ## First-time Railway setup
