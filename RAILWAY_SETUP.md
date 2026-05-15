@@ -6,21 +6,36 @@ Step-by-step instructions for pushing this project to GitHub and wiring it up to
 
 ---
 
+## Two repos, two different roles — do not mix them up
+
+This project depends on **two separate GitHub repos** under your account (examples below use `d2kole`):
+
+| Repo | Role | Who touches it |
+|---|---|---|
+| **`d2kole/obsidian-mcp-railway`** | The **service code** — what you are setting up now. Railway builds and redeploys from this repo on every push. | You push code here from Replit. Railway pulls from here. |
+| **`d2kole/obsidian-my-second-brain`** | The **vault content** — your actual Obsidian notes. The running server clones it on startup with the `GITHUB_PAT`, and commits Claude's writes back to it. | Your Desktop's Obsidian Git plugin pushes notes here. Railway never builds from this repo. |
+
+**Do not push this project's code into the vault repo, and do not point Railway at the vault repo.** The two are referenced via different settings: Railway's GitHub integration points at the **service code** repo (`obsidian-mcp-railway`); the `VAULT_REPO_URL` env var points at the **vault content** repo (`obsidian-my-second-brain`).
+
+---
+
 ## Before you start
 
 You need:
-- A GitHub account (same one your vault repo lives under)
+- A GitHub account (the one that owns the vault repo — `d2kole` in these examples)
 - A Railway account at [railway.app](https://railway.app) (Hobby plan, ~$5/mo)
 - This Replit project open in a browser tab
 
 ---
 
-## Step 1 — Create the `obsidian-mcp-railway` GitHub repo
+## Step 1 — Create the `obsidian-mcp-railway` GitHub repo (service code)
+
+This is the **service code** repo. The vault content repo (`obsidian-my-second-brain`) already exists; do not recreate it here.
 
 1. Go to [github.com/new](https://github.com/new).
 2. Name it **`obsidian-mcp-railway`**, set it to **Private**, leave everything else unchecked (no README, no .gitignore, no license).
 3. Click **Create repository**.
-4. Copy the HTTPS URL — it will look like `https://github.com/yourname/obsidian-mcp-railway.git`.
+4. Copy the HTTPS URL — it will be `https://github.com/d2kole/obsidian-mcp-railway.git`.
 
 ---
 
@@ -36,8 +51,8 @@ pwd   # should print /home/runner/workspace
 git config --global user.email "you@example.com"
 git config --global user.name "Your Name"
 
-# Add the new repo as a remote (replace the URL with yours from Step 1)
-git remote add github https://github.com/yourname/obsidian-mcp-railway.git
+# Add the service code repo as a remote
+git remote add github https://github.com/d2kole/obsidian-mcp-railway.git
 
 # Push the main branch
 git push github main
@@ -65,8 +80,8 @@ Keep the terminal output somewhere safe — you will not be able to retrieve the
 
 1. Go to [railway.app](https://railway.app) and open your project (or create a new one).
 2. Click **New Service → GitHub Repo**.
-3. If you see a repo that says "vault" or "obsidian-vault" connected — click its settings, scroll to the bottom, and **disconnect** it before proceeding.
-4. Find and select **`obsidian-mcp-railway`** (the repo you pushed in Step 2). If you don't see it, click **Configure GitHub App** and grant access to that repo.
+3. If Railway is currently connected to **`obsidian-my-second-brain`** (the vault content repo) — that is the wrong repo. Open its settings, scroll to the bottom, and **disconnect** it before proceeding. Railway must build from the service code repo, not the vault.
+4. Find and select **`d2kole/obsidian-mcp-railway`** (the service code repo you pushed in Step 2). If you don't see it, click **Configure GitHub App** and grant access to that repo only.
 5. Railway will detect the `Dockerfile` automatically.
 
 ---
@@ -82,13 +97,13 @@ Keep the terminal output somewhere safe — you will not be able to retrieve the
 
 ## Step 6 — Set environment variables in Railway
 
-In your Railway service, go to **Variables** and add each one below. Mark the four **Sealed** ones as Sealed Variables (click the lock icon) so they are hidden from logs.
+In your Railway service, go to **Variables** and add each one below. Mark every row tagged **Sealed** as a Sealed Variable (click the lock icon) so its value is hidden from logs.
 
 | Variable | Value |
 |---|---|
-| `VAULT_REPO_URL` | `https://github.com/yourname/obsidian-vault.git` |
+| `VAULT_REPO_URL` | `https://github.com/d2kole/obsidian-my-second-brain.git` (the **vault content** repo, not the service code repo) |
 | `VAULT_BRANCH` | `main` |
-| `GITHUB_PAT` | Your fine-grained GitHub PAT (contents: read+write on the vault repo) |
+| `GITHUB_PAT` | Fine-grained GitHub PAT scoped to **`obsidian-my-second-brain` only** with contents: read+write — **Sealed** |
 | `OAUTH_CLIENT_SECRET` | Output of first `openssl rand` command — **Sealed** |
 | `SESSION_ENCRYPTION_KEY` | Output of second `openssl rand` command — **Sealed** |
 | `PERSONAL_AUTH_TOKEN` | Output of third `openssl rand` command — **Sealed** — this is your login password |
@@ -98,7 +113,7 @@ In your Railway service, go to **Variables** and add each one below. Mark the fo
 
 **How to create a fine-grained GitHub PAT for the vault repo:**
 1. GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token.
-2. Resource owner: your account. Repository access: **Only select repositories** → pick your vault repo.
+2. Resource owner: `d2kole`. Repository access: **Only select repositories** → pick **`obsidian-my-second-brain`** (the vault content repo). Do NOT grant access to `obsidian-mcp-railway` — the service code repo never needs PAT access at runtime.
 3. Permissions: Repository permissions → Contents → **Read and write**.
 4. Expiry: 90 days. Click Generate. Copy the token immediately.
 
@@ -168,8 +183,8 @@ Click **Configure GitHub App** in Railway's repo picker and grant access to the 
 
 **Healthcheck fails with `git_fetch_dry_run: false`**
 
-- Check that `VAULT_REPO_URL` is the correct HTTPS URL for your vault repo (not the MCP server repo).
-- Check that `GITHUB_PAT` has `contents: read+write` scope on the vault repo and has not expired.
+- Check that `VAULT_REPO_URL` points to **`obsidian-my-second-brain`** (the vault content repo), not `obsidian-mcp-railway` (the service code repo). This is the most common mistake.
+- Check that `GITHUB_PAT` has `contents: read+write` scope on `obsidian-my-second-brain` and has not expired.
 - In Railway logs, look for "git fetch" error lines. They will show a redacted error — if it says "authentication failed", the PAT is wrong or expired.
 
 **Healthcheck fails with `vault_cache_present: false`**
