@@ -130,6 +130,44 @@ describe("oauth store persistence", () => {
     expect(raw.revoked.map((r) => r.jti)).toContain("burst-49");
   });
 
+  it("starts empty when the store file is corrupt JSON", async () => {
+    fs.writeFileSync(storeFile, "{not valid json");
+    const s = await freshStore();
+    // Touching the store triggers ensureLoaded — must not throw.
+    expect(s.consumeAuthCode("nope")).toBeNull();
+  });
+
+  it("starts empty when the store file has an unsupported version", async () => {
+    fs.writeFileSync(storeFile, JSON.stringify({ version: 999 }));
+    const s = await freshStore();
+    expect(s.consumeAuthCode("nope")).toBeNull();
+  });
+
+  it("loads a v1 store file that omits the codes/revoked/issued arrays", async () => {
+    // Older snapshots may have been written before the issued[] field existed.
+    fs.writeFileSync(storeFile, JSON.stringify({ version: 1 }));
+    const s = await freshStore();
+    // No throw on load, and no entries surface.
+    expect(s.consumeAuthCode("nope")).toBeNull();
+    expect(s.listActiveTokens()).toEqual([]);
+  });
+
+  it("logs a warning but does not throw when persistence fails", async () => {
+    // Point the store at a path under a regular file so mkdirSync/writeFileSync
+    // both fail. The store must swallow the error and keep serving requests.
+    const blocker = path.join(tmpDir, "blocker-file");
+    fs.writeFileSync(blocker, "x");
+    const badPath = path.join(blocker, "child", "store.json");
+    process.env["OAUTH_STORE_PATH"] = badPath;
+    const s = await freshStore();
+    expect(() => {
+      s.revokeJti("will-fail-to-persist");
+      s.flushPersist();
+    }).not.toThrow();
+    // Restore for subsequent tests.
+    process.env["OAUTH_STORE_PATH"] = storeFile;
+  });
+
   it("evicts oldest revoked entries past the cap", async () => {
     const s = await freshStore();
     const cap = s._internals.REVOKED_CAP;

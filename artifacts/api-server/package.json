@@ -21,7 +21,8 @@
     "verify:test-infra": "pnpm run typecheck && vitest run tests/unit/smoke.test.ts tests/integration/smoke.test.ts tests/integration/git-remote.fixture.test.ts && playwright test tests/e2e/healthz.spec.ts",
     "verify:vault": "vitest run tests/integration/vault-service.test.ts src/vault/service.test.ts src/vault/edits.test.ts --coverage --coverage.include='src/vault/**' --coverage.thresholds.lines=90 --coverage.thresholds.statements=90 --coverage.thresholds.functions=90 --coverage.thresholds.branches=80",
     "verify:write-path": "vitest run tests/unit/write-path.test.ts --coverage --coverage.include='src/vault/write-path.ts' --coverage.include='src/vault/errors.ts' --coverage.thresholds.lines=95 --coverage.thresholds.statements=95 --coverage.thresholds.functions=95 --coverage.thresholds.branches=95",
-    "verify:rate-limit": "vitest run src/mcp/rateLimit.test.ts tests/integration/rate-limit.test.ts --coverage --coverage.include='src/mcp/rateLimit.ts' --coverage.thresholds.lines=95 --coverage.thresholds.statements=95 --coverage.thresholds.functions=95 --coverage.thresholds.branches=95"
+    "verify:rate-limit": "vitest run src/mcp/rateLimit.test.ts tests/integration/rate-limit.test.ts --coverage --coverage.include='src/mcp/rateLimit.ts' --coverage.thresholds.lines=95 --coverage.thresholds.statements=95 --coverage.thresholds.functions=95 --coverage.thresholds.branches=95",
+    "verify:oauth": "vitest run src/oauth/oauth.test.ts src/oauth/store.persistence.test.ts --coverage --coverage.include='src/oauth/**' --coverage.thresholds.lines=90 --coverage.thresholds.branches=90"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
