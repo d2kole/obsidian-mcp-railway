@@ -62,4 +62,22 @@ describe("VaultService write-path safety", () => {
     expect(abs.startsWith("/tmp/vault-cache-test/")).toBe(true);
     expect(abs.endsWith("/00-Inbox/note.md")).toBe(true);
   });
+
+  it("fails closed when the configured allowlist is empty (env unset)", () => {
+    const svc = primed();
+    const internals = svc as unknown as { writePaths: string[] };
+    internals.writePaths = [];
+    // Every otherwise-valid write must be rejected.
+    expect(() => svc.assertWriteAllowed("00-Inbox/ok.md")).toThrow(VaultError);
+    expect(() => svc.assertWriteAllowed("anything.md")).toThrow(VaultError);
+    expect(svc.isWriteAllowed("00-Inbox/ok.md")).toBe(false);
+    // Hint must point the operator at the env var so they have a next action.
+    try {
+      svc.assertWriteAllowed("00-Inbox/ok.md");
+    } catch (err) {
+      const e = err as VaultError;
+      expect(e.hint).toMatch(/OBSIDIAN_WRITE_PATHS/);
+      expect(e.hint).toMatch(/Set/);
+    }
+  });
 });

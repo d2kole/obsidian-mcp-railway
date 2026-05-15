@@ -5,16 +5,15 @@ import { simpleGit, type SimpleGit } from "simple-git";
 import { logger } from "../lib/logger";
 import { getConfig } from "../lib/config";
 import { redactError, redactSecrets } from "../lib/redact";
+import { VaultError } from "./errors";
+import {
+  assertNoSymlinkEscape,
+  assertWriteAllowed as assertWriteAllowedPure,
+  isWriteAllowed as isWriteAllowedPure,
+  resolveSafePath as resolveSafePathPure,
+} from "./write-path";
 
-export class VaultError extends Error {
-  constructor(
-    message: string,
-    public readonly hint?: string,
-  ) {
-    super(message);
-    this.name = "VaultError";
-  }
-}
+export { VaultError } from "./errors";
 
 export class VaultService {
   private git: SimpleGit | null = null;
@@ -156,41 +155,15 @@ export class VaultService {
 
   resolveSafePath(relPath: string): string {
     this.ensureInit();
-    const cleaned = relPath.replace(/^\/+/, "").replace(/\\/g, "/");
-    if (cleaned.includes("..")) {
-      throw new VaultError(
-        `Invalid path: "${relPath}" — parent traversal is not allowed.`,
-        "Use a path relative to the vault root (e.g. '00-Inbox/note.md').",
-      );
-    }
-    const abs = path.resolve(this.cacheDir, cleaned);
-    if (!abs.startsWith(this.cacheDir + path.sep) && abs !== this.cacheDir) {
-      throw new VaultError(
-        `Invalid path: "${relPath}" escapes the vault root.`,
-        "Use a path relative to the vault root.",
-      );
-    }
-    return abs;
+    return resolveSafePathPure(this.cacheDir, relPath);
   }
 
   isWriteAllowed(relPath: string): boolean {
-    const cleaned = relPath.replace(/^\/+/, "").replace(/\\/g, "/");
-    return this.writePaths.some(
-      (allowed) =>
-        cleaned === allowed ||
-        cleaned.startsWith(allowed + "/") ||
-        cleaned.startsWith(allowed.replace(/\/+$/, "") + "/"),
-    );
+    return isWriteAllowedPure(relPath, this.writePaths);
   }
 
   assertWriteAllowed(relPath: string): void {
-    if (!this.isWriteAllowed(relPath)) {
-      throw new VaultError(
-        `Write rejected: "${relPath}" is outside the allowed write paths.`,
-        `Allowed write paths: ${this.writePaths.join(", ")}. ` +
-          `Either choose a path inside one of those folders, or update the OBSIDIAN_WRITE_PATHS environment variable on Railway.`,
-      );
-    }
+    assertWriteAllowedPure(relPath, this.writePaths);
   }
 
   getCacheDir(): string {
@@ -220,6 +193,7 @@ export class VaultService {
   async writeFile(relPath: string, content: string): Promise<void> {
     this.assertWriteAllowed(relPath);
     const abs = this.resolveSafePath(relPath);
+    await assertNoSymlinkEscape(this.cacheDir, abs);
     await fs.mkdir(path.dirname(abs), { recursive: true });
     await fs.writeFile(abs, content, "utf8");
   }
@@ -227,6 +201,7 @@ export class VaultService {
   async deleteFile(relPath: string): Promise<void> {
     this.assertWriteAllowed(relPath);
     const abs = this.resolveSafePath(relPath);
+    await assertNoSymlinkEscape(this.cacheDir, abs);
     try {
       await fs.unlink(abs);
     } catch (err) {
@@ -243,6 +218,8 @@ export class VaultService {
     this.assertWriteAllowed(toPath);
     const absFrom = this.resolveSafePath(fromPath);
     const absTo = this.resolveSafePath(toPath);
+    await assertNoSymlinkEscape(this.cacheDir, absFrom);
+    await assertNoSymlinkEscape(this.cacheDir, absTo);
     await fs.mkdir(path.dirname(absTo), { recursive: true });
     await fs.rename(absFrom, absTo);
   }
@@ -278,6 +255,7 @@ export class VaultService {
   async createDirectory(relPath: string): Promise<void> {
     this.assertWriteAllowed(relPath);
     const abs = this.resolveSafePath(relPath);
+    await assertNoSymlinkEscape(this.cacheDir, abs);
     await fs.mkdir(abs, { recursive: true });
     const keep = path.join(abs, ".gitkeep");
     if (!existsSync(keep)) {

@@ -1,0 +1,21 @@
+Build failed — the connected repo is your vault, not the MCP server
+The deploy applied all 20 changes and triggered a build, but the build failed with:
+
+❌ Railpack could not determine how to build the app.
+⚠️ Script start.sh not found.
+
+When I look at the repo Railpack analyzed, I see Obsidian vault folders — .obsidian/, Daily/, Projects/, Reviews/, Wiki/, Templates/, Assets/, and three Obsidian-MCP plugin .tgz files (fazer-ai-mcp-obsidian-1.2.0.tgz, guilhermejansen-mcp-obsidian-1.1.2.tgz, obsidian-mcp-1.0.6.tgz) — but no package.json, no Dockerfile, and no Node.js source code. This is your Obsidian vault (the one the server should clone into /vault-cache), not the MCP server source code.
+Your original task said: "Create a new project from your obsidian-mcp-railway repo." But when I checked the available GitHub repos, only d2kole/obsidian-my-second-brain was visible — and you said "use that, it is the MCP server repo." Based on what built, that turns out not to be accurate. The obsidian-mcp-railway repo (containing the actual Node.js server code, package.json, and start script) appears to be a separate repo that the Railway GitHub App doesn't yet have access to.
+What needs to happen next (you'll need to do these steps in GitHub directly):
+
+Go to GitHub → Settings → Applications → Railway (or click "Configure GitHub App" on Railway's repo picker).
+Grant Railway access to the obsidian-mcp-railway repo (the one containing the Node.js MCP server source).
+Let me know when that's done, and I'll:
+
+Disconnect the current vault repo from this service (or delete the service)
+Reconnect to obsidian-mcp-railway
+All 17 environment variables, the /vault-cache volume, and the public domain are already configured and will carry over — we just need to point at the correct source repo.
+
+
+
+The VAULT_REPO_URL=https://github.com/d2kole/obsidian-my-second-brain.git value is correct as-is — that's the vault the running server should clone into /vault-cache at startup. We just need the server repo wired up as the build source.

@@ -77,12 +77,10 @@ export function loadConfig(mode: "http" | "stdio"): AppConfig {
       branch: optional("VAULT_BRANCH", "main"),
       cacheDir: optional("VAULT_CACHE_DIR", "/vault-cache"),
       githubPat: required("GITHUB_PAT"),
-      writePaths: parseList("OBSIDIAN_WRITE_PATHS", [
-        "00-Inbox",
-        "01-Daily",
-        "Captures",
-        "Journal",
-      ]),
+      // Fail closed: when OBSIDIAN_WRITE_PATHS is unset or empty, the
+      // server treats the vault as read-only. Operators must opt in
+      // explicitly on Railway. See task #8 (write-path allowlist).
+      writePaths: parseList("OBSIDIAN_WRITE_PATHS", []),
     },
     oauth: {
       clientId: optional("OAUTH_CLIENT_ID", "obsidian-mcp-railway"),
