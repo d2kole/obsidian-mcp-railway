@@ -42,6 +42,22 @@ export class VaultService {
 
     const gitDir = path.join(this.cacheDir, ".git");
     if (!existsSync(gitDir)) {
+      // If the cache dir has orphan files but no .git, the working copy is
+      // corrupt (manual edit, half-deleted, etc.). Clear it so the clone
+      // can land — there's no valid history to preserve here anyway.
+      const entries = await fs.readdir(this.cacheDir).catch(() => [] as string[]);
+      if (entries.length > 0) {
+        logger.warn(
+          { cacheDir: this.cacheDir, orphanCount: entries.length },
+          "Vault cache has orphan files but no .git, wiping before re-clone",
+        );
+        for (const name of entries) {
+          await fs.rm(path.join(this.cacheDir, name), {
+            recursive: true,
+            force: true,
+          });
+        }
+      }
       logger.info(
         { cacheDir: this.cacheDir, branch: this.branch },
         "Vault cache empty, cloning from GitHub",
