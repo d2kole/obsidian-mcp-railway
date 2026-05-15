@@ -1,6 +1,40 @@
+# --- Build & test artefacts -------------------------------------------------
+# Compiled bundles, coverage reports, transient test fixtures, and Playwright
+# output. Safe to delete; never useful in version control.
 dist/
 coverage/
 tests/.tmp/
+tests/.evidence/
 playwright-report/
 test-results/
 .playwright/
+
+# --- Environment files — NEVER commit real secrets --------------------------
+# .env / .env.* hold GITHUB_PAT, OAUTH_CLIENT_SECRET, SESSION_ENCRYPTION_KEY,
+# and PERSONAL_AUTH_TOKEN. A single accidental commit is a P0 security
+# incident. .env.example is the only env file allowed in git.
+.env
+.env.*
+!.env.example
+
+# --- OAuth persistence file -------------------------------------------------
+# .oauth-store.json holds issued auth codes and revoked-token IDs for the
+# single-user OAuth flow. Treated as a secret store — never commit.
+.oauth-store.json
+**/.oauth-store.json
+
+# --- Cryptographic material -------------------------------------------------
+# Private keys, certs, and PKCS bundles must never enter the repo even by
+# accident (e.g. someone testing a custom TLS setup locally).
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+
+# --- Local dev vault fixtures -----------------------------------------------
+# scripts/dev-bootstrap.sh writes a throwaway file:// vault under
+# /tmp/obsidian-mcp-dev/ by default; if a contributor overrides DEV_VAULT_DIR
+# to a path inside the repo, this rule catches it.
+tmp/
+.dev-vault/

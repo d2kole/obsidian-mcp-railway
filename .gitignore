@@ -50,12 +50,27 @@ test-results/
 playwright-report/
 
 # Local env files — never commit real secrets
+# .env / .env.* hold GITHUB_PAT, OAUTH_CLIENT_SECRET, SESSION_ENCRYPTION_KEY,
+# and PERSONAL_AUTH_TOKEN. A single accidental commit is a P0 security
+# incident. .env.example is the only env file allowed in git.
 .env
 .env.*
 !.env.example
 
+# OAuth persistence file — holds issued auth codes and revoked-token IDs.
+.oauth-store.json
+**/.oauth-store.json
+
+# Cryptographic material — private keys, certs, PKCS bundles.
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+
 # Temp vault caches created by dev-bootstrap.sh
 /tmp/obsidian-mcp-dev/
+.dev-vault/
 
 # Replit
 .cache/
