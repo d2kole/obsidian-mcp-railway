@@ -238,6 +238,19 @@ describe("Rate limit through the real Express + MCP middleware stack", () => {
     expect(payload.error).toBe(expected.error);
     expect(payload.hint).toBe(expected.hint);
     expect(payload.session_id).toBe(expected.session_id);
+    // Independent pinned-literal assertion. Decoupled from
+    // buildRateLimitRejection so a refactor that changes BOTH the
+    // production helper and the helper-derived `expected` still trips
+    // this check. Hard-codes max=20 (the production cap pinned in
+    // src/test/env.ts) and the live session_id derived directly here.
+    const literalSid = crypto
+      .createHash("sha256")
+      .update(token)
+      .digest("hex")
+      .slice(0, 8);
+    expect(payload.error).toBe(
+      `Write rate limit exceeded: 20 writes per hour for session ${literalSid}.`,
+    );
     // Sanity-check the substantive bits of that canonical text so a
     // refactor of buildRateLimitRejection that drops, say, the limit
     // value or "Retry in" guidance still trips the suite.
