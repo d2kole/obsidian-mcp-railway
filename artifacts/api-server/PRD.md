@@ -83,7 +83,7 @@ Claude.ai web · Claude iOS · Claude Code CLI
 
 ## 5. MCP tools reference
 
-All tools require a valid Bearer access token. Write tools additionally enforce `OBSIDIAN_WRITE_PATHS` and the `MAX_WRITES_PER_HOUR` rate limit per session.
+The table below reflects the **current deployed tool inventory** (also logged at startup as "MCP tool inventory"). The upstream `eddmann/obsidian-mcp` advertises a "18-tool" surface; this server registers more granular variants (see Gotchas). All tools require a valid Bearer access token. Write tools additionally enforce `OBSIDIAN_WRITE_PATHS` and the `MAX_WRITES_PER_HOUR` rate limit per session.
 
 | Tool | Read/Write | Purpose |
 | --- | --- | --- |
@@ -129,10 +129,10 @@ Realistic things to paste into Claude once the connector is live.
 
 ## 7. How to deploy (pointer-level)
 
-Full step-by-step in [`OPERATIONS.md`](./OPERATIONS.md). Short version:
+[`OPERATIONS.md`](./OPERATIONS.md) is the source of truth for env var requirements — defer to it if anything below ever drifts. Short version:
 
 1. Create the Railway project from this repo and attach a 1 GB volume mounted at `/vault-cache`.
-2. Set the eight required env vars (`VAULT_REPO_URL`, `GITHUB_PAT`, `OAUTH_CLIENT_SECRET`, `SESSION_ENCRYPTION_KEY`, `PERSONAL_AUTH_TOKEN`, `BASE_URL`, plus the Sealed flag on the four secrets). All other env vars have sensible defaults.
+2. Set the required env vars listed in `OPERATIONS.md` (at minimum: `VAULT_REPO_URL`, `GITHUB_PAT`, `OAUTH_CLIENT_SECRET`, `SESSION_ENCRYPTION_KEY`, `PERSONAL_AUTH_TOKEN`, `BASE_URL`). Mark `GITHUB_PAT`, `OAUTH_CLIENT_SECRET`, `SESSION_ENCRYPTION_KEY`, and `PERSONAL_AUTH_TOKEN` as **Sealed**. Everything else has sensible defaults.
 3. Deploy. The Dockerfile is multi-stage; first boot clones the vault into the volume.
 4. Hit `https://<your-domain>/api/healthz` and confirm a 200 with all three checks `ok: true`.
 5. In Claude.ai → Connectors, register `https://<your-domain>/mcp`.
