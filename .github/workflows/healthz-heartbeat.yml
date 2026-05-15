@@ -1,0 +1,76 @@
+name: healthz-heartbeat
+
+# Once-a-day "still alive" ping. Hits /api/healthz; on a 200 response, sends a
+# low-priority Pushover notification so you have proof the *monitor itself*
+# (this workflow + its secrets) is still running. If this ping stops arriving
+# for >24h, assume the monitor is broken even if healthz-monitor is silent.
+#
+# Required repository secrets (same as healthz-monitor):
+#   HEALTHZ_URL          - e.g. https://obsidian-mcp-railway.up.railway.app/api/healthz
+#   PUSHOVER_APP_TOKEN   - Application API token from pushover.net
+#   PUSHOVER_USER_KEY    - Your user key from pushover.net
+
+on:
+  schedule:
+    # 14:00 UTC daily (~10am ET / 7am PT). Adjust as desired.
+    - cron: "0 14 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: healthz-heartbeat
+  cancel-in-progress: false
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Probe /api/healthz and send low-priority Pushover heartbeat
+        env:
+          HEALTHZ_URL: ${{ secrets.HEALTHZ_URL }}
+          PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+        run: |
+          set -u
+          if [ -z "${HEALTHZ_URL:-}" ]; then
+            echo "HEALTHZ_URL secret is not configured" >&2
+            exit 1
+          fi
+
+          echo "Heartbeat probe -> $HEALTHZ_URL"
+          body_file="$(mktemp)"
+          status="$(curl -sS -o "$body_file" -w '%{http_code}' \
+            --max-time 10 --connect-timeout 5 "$HEALTHZ_URL" || echo '000')"
+          rm -f "$body_file"
+          echo "  status=$status"
+
+          if [ "$status" != "200" ]; then
+            echo "healthz returned $status; skipping heartbeat ping (healthz-monitor handles outage paging)."
+            exit 0
+          fi
+
+          if [ -z "${PUSHOVER_APP_TOKEN:-}" ] || [ -z "${PUSHOVER_USER_KEY:-}" ]; then
+            echo "Pushover secrets not configured; cannot send heartbeat" >&2
+            exit 1
+          fi
+
+          title="obsidian-mcp-railway heartbeat"
+          message="vault server healthy (daily heartbeat from GitHub Actions monitor)"
+
+          # priority=-2 = lowest: no sound, no vibration, no notification banner;
+          # delivered silently to the Pushover device list. Just proves the
+          # monitor pipeline (workflow + secrets + Pushover) is alive.
+          http_code="$(curl -sS -o /tmp/pushover.out -w '%{http_code}' \
+            --max-time 10 \
+            --form-string "token=${PUSHOVER_APP_TOKEN}" \
+            --form-string "user=${PUSHOVER_USER_KEY}" \
+            --form-string "title=${title}" \
+            --form-string "message=${message}" \
+            --form-string "priority=-2" \
+            https://api.pushover.net/1/messages.json || echo '000')"
+          echo "Pushover response ($http_code): $(cat /tmp/pushover.out)"
+          if [ "$http_code" != "200" ]; then
+            echo "Pushover send failed" >&2
+            exit 1
+          fi
+          exit 0

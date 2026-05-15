@@ -117,6 +117,26 @@ parsed from the `/api/healthz` JSON response (e.g. `git_fetch_dry_run`,
   that bypass quiet hours (Pushover will require acknowledgement).
 - GitHub's scheduled workflows can be delayed under load; expect best-effort 1-minute cadence.
 
+## Daily heartbeat ("still alive" ping)
+
+The healthz-monitor above only fires when `/api/healthz` fails. If the
+monitor itself silently breaks (workflow disabled, secrets rotated, GitHub
+Actions outage), you'd never know — silence would look identical to "all
+healthy". To close that gap, a second scheduled workflow at
+`.github/workflows/healthz-heartbeat.yml` runs **once per day** (14:00 UTC),
+hits `/api/healthz`, and on a 200 sends a **low-priority** (`priority=-2`,
+silent) Pushover notification reading `vault server healthy`.
+
+Treat its **absence** as the signal: if you don't see a heartbeat for >24h,
+assume the monitor pipeline is broken even if healthz-monitor is quiet, and
+manually re-run the heartbeat workflow (Actions → `healthz-heartbeat` → Run
+workflow) to investigate.
+
+The heartbeat reuses the same three secrets as healthz-monitor
+(`HEALTHZ_URL`, `PUSHOVER_APP_TOKEN`, `PUSHOVER_USER_KEY`) — no extra setup
+beyond the alerting runbook above. Adjust the cron in the workflow file to
+change the time of day.
+
 ## Out of scope (future work)
 
 - Conflict resolution on simultaneous Desktop + MCP writes (single-writer pattern avoids this for now).
