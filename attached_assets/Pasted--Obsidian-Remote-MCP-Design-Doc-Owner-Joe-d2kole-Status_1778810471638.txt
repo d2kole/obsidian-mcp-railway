@@ -1,0 +1,152 @@
+# Obsidian Remote MCP — Design Doc
+
+**Owner:** Joe (d2kole)
+**Status:** Approved, ready to build
+**Last updated:** May 12, 2026
+
+---
+
+## One-Line Summary
+
+Remote MCP server, git-backed via private GitHub repo, deployed on Railway, exposing Joe's Obsidian vault to Claude (Claude Code CLI primarily, Claude.ai web/iOS best-effort) — accessible when home PC is off.
+
+---
+
+## Why This Architecture
+
+The "PC can be off" requirement forces one decision: the vault data must live somewhere always-on. Three patterns exist (git-backed, CouchDB-backed via Self-hosted LiveSync, or PC tunnel). PC tunnel fails the requirement. CouchDB adds an unwanted database to maintain. **Git-backed wins** because GitHub is already the persistence layer Joe uses, and the source of truth for the vault becomes a private repo with version history, audit trail, and zero new dependencies.
+
+---
+
+## Architecture
+
+```
+        ┌──────────────────────────────┐
+        │   Desktop (Alienware, Win11) │
+        │   ┌──────────────────────┐   │
+        │   │ Obsidian             │   │
+        │   │ + obsidian-git plugin│   │
+        │   └──────────┬───────────┘   │
+        └──────────────┼───────────────┘
+                       │ commit/push every 10 min
+                       │ pull on startup + every 5 min
+                       ▼
+              ┌────────────────────┐
+              │  GitHub            │
+              │  d2kole/vault-repo │  ◄── source of truth
+              │  (private)         │
+              └────┬───────────────┘
+                   │ clone on cold start
+                   │ pull on each tool call
+                   │ push on each write
+                   ▼
+        ┌──────────────────────────────┐
+        │  Railway (Hobby, us-east4)   │
+        │  ┌──────────────────────┐    │
+        │  │ obsidian-mcp service │    │
+        │  │ (Node/TS, HTTP+OAuth)│    │
+        │  │ Streamable HTTP      │    │
+        │  └──────────┬───────────┘    │
+        │             │                │
+        │  ┌──────────▼───────────┐    │
+        │  │ persistent volume    │    │
+        │  │ /vault-cache (1GB)   │    │
+        │  └──────────────────────┘    │
+        └──────────────┬───────────────┘
+                       │ HTTPS, OAuth 2.0 + PKCE
+                       │
+        ┌──────────────┴────────────────┐
+        │                               │
+        ▼                               ▼
+  ┌──────────────┐              ┌────────────────┐
+  │ Claude Code  │              │ Claude.ai      │
+  │ CLI (Desktop)│              │ web + iOS      │
+  │ PRIMARY      │              │ BEST-EFFORT    │
+  │ (reliable)   │              │ (buggy OAuth)  │
+  └──────────────┘              └────────────────┘
+```
+
+---
+
+## Decision Log
+
+| # | Decision | Choice | Rationale |
+|---|----------|--------|-----------|
+| 1 | PHI scope | Vault is 100% PHI-free | Dev/learning/business ops only. No exclusions needed. |
+| 2 | GitHub ownership | `d2kole` for both vault and MCP server repos | One PAT, no cross-account plumbing. |
+| 3 | Sync cadence | Desktop: commit 10m / push 10m / pull 5m. iOS Obsidian: no git plugin. | Single-writer pattern minimizes merge conflicts. Mobile capture via Claude/MCP only. |
+| 4 | MCP codebase | Fork `eddmann/obsidian-mcp` (TS, 18 tools, OAuth-ready) | Mature, purpose-built for git-backed pattern. ~6-8 hrs adaptation vs. weeks fresh. |
+| 5 | Hosting | Railway Hobby (~$5/mo), persistent 1GB volume, us-east4 | Always-on, no cold starts, low latency to Boca Raton. |
+| 6 | Auth | Full OAuth 2.0 + PKCE | Bearer token not supported in Claude.ai UI. Primary path is Claude Code CLI; Claude.ai best-effort. |
+| 7 | Tool surface | All reads unrestricted; writes scoped via `OBSIDIAN_WRITE_PATHS` (Phase 2 feature) | Capture zones only (Inbox, Daily, Captures, Journal). Wiki and skill pages stay read-only via Claude. |
+| 8 | Ops | Railway env vars + Sealed Variables, JSON logs via `pino`, `/healthz` every 60s, Pushover alert on 3-strike fail | Solo-scale observability floor. |
+| 9 | DR | Git history as primary. Plus: `MAX_WRITES_PER_HOUR=20` rate limiter, volume rebuild drill, PAT rotation runbook | Git is already offsite backup. Hardened against the three realistic failure modes only. |
+
+---
+
+## Component Inventory
+
+### Phase 1 (deploy as-is)
+- Vault GitHub repo: `d2kole/obsidian-vault` (private)
+- MCP service on Railway pulling `ghcr.io/eddmann/obsidian-mcp:latest`
+- Railway persistent volume mounted for the cloned working tree
+- Required env vars set in Railway: `VAULT_REPO`, `VAULT_BRANCH`, `GIT_TOKEN`, `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, `PERSONAL_AUTH_TOKEN`, `BASE_URL`
+
+### Phase 2 (after fork + modifications)
+- MCP server repo: `d2kole/obsidian-mcp` (private fork of `eddmann/obsidian-mcp`)
+- Railway-friendly Dockerfile (in fork)
+- SQLite session store (replaces upstream's DynamoDB) — file on the persistent volume
+- `/healthz` endpoint
+- Rate limiter middleware (`MAX_WRITES_PER_HOUR`)
+- Write-path allowlist middleware (`OBSIDIAN_WRITE_PATHS`)
+- Structured JSON logging via `pino`
+- Pushover webhook helper
+
+### Operational
+- `OPERATIONS.md` — runbooks (in repo)
+- Calendar reminder — 90-day PAT rotation
+- Pushover account ($5 one-time)
+
+---
+
+## Tools Exposed (eddmann upstream — kebab-case)
+
+**File ops (9):** `read-note`, `read-notes`, `create-note`, `edit-note`, `delete-note`, `move-note`, `append-content`, `patch-content`, `apply-diff-patch`
+**Directory ops (3):** `create-directory`, `list-files-in-vault`, `list-files-in-dir`
+**Search (1):** `search-vault` (fuse.js fuzzy + exact)
+**Tags (4):** `add-tags`, `remove-tags`, `rename-tag`, `manage-tags`
+**Journal (1):** `log-journal-entry`
+**Resource (1):** `vault-readme` at `obsidian://vault-readme`
+
+---
+
+## Known Limitations & Risks
+
+| Risk | Likelihood | Mitigation |
+|------|-----------|------------|
+| Claude.ai OAuth bugs (#155, #215, #46140, #228) | **Active right now** | Use Claude Code CLI on Desktop as primary path. Reassess Claude.ai in 1-3 months. |
+| Write latency 5-15s per tool call | Certain | Acceptable for capture/log workflows. Real-time editing stays in Obsidian. |
+| Concurrent edit conflict (Desktop ↔ MCP) | Low | Desktop pulls every 5 min. Worst case: manual rebase. |
+| Runaway tool calls from a broken loop | Low | Phase 2 rate limiter (`MAX_WRITES_PER_HOUR=20`). |
+| PAT leak | Low | Fine-grained scope, 90-day expiry, Sealed Variables, documented rotation procedure. |
+| Railway free credit exhausted | Low | $5/mo Hobby tier covers always-on solo service. |
+| Vault contains PHI in the future | Low if disciplined | Audit annually. If PHI enters vault, this architecture must be reconsidered. |
+
+---
+
+## Out of Scope
+
+- Multi-user access (Romelle, VAs) — speculative, defer until needed
+- Real-time bi-directional sync (LiveSync pattern) — different architecture, not chosen
+- Offsite backup beyond GitHub — GitHub *is* the offsite backup
+- iOS Obsidian native git editing — mobile capture goes through Claude/MCP only
+
+---
+
+## Future Evolution Triggers
+
+Reconsider this design if:
+- Claude.ai's connector OAuth bugs aren't fixed in 3 months → evaluate Claude Managed Agents path
+- Vault grows past 500MB → re-evaluate volume size and clone-on-cold-start latency
+- A second user needs scoped access → swap OAuth single-user model for multi-tenant
+- PHI enters the vault → migrate to a HIPAA-eligible architecture (BAA-covered hosting, encrypted storage, audit logging)
