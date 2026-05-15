@@ -237,7 +237,7 @@ describe("assertNoSymlinkEscape", () => {
   it("allows writes that stay inside the cache", async () => {
     const target = path.join(cacheDir, "00-Inbox/new.md");
     await expect(
-      assertNoSymlinkEscape(cacheDir, target),
+      assertNoSymlinkEscape(cacheDir, target, ["00-Inbox"]),
     ).resolves.toBeUndefined();
   });
 
