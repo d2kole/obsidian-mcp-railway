@@ -104,7 +104,20 @@ export class VaultService {
       await this.git!.pull("origin", this.branch, ["--ff-only"]);
       this.lastSyncMs = now;
     } catch (err) {
-      logger.warn({ err: redactError(err) }, "git pull failed");
+      const raw = redactError(err);
+      logger.warn({ err: raw }, "git pull failed");
+      // Distinguish a divergence/non-fast-forward conflict from auth/network
+      // errors so the operator gets a useful next-action hint.
+      if (
+        /not possible to fast-forward|non-fast-forward|diverged|unrelated histories|would clobber/i.test(
+          raw,
+        )
+      ) {
+        throw new VaultError(
+          "git pull failed: local and remote have diverged (not a fast-forward).",
+          "Resolve the conflict by rebasing or resetting the cache (e.g. delete /vault-cache and let the server re-clone), then retry. See server logs for the redacted git output.",
+        );
+      }
       throw new VaultError(
         "git pull failed.",
         "Check that GITHUB_PAT is valid and has read access to VAULT_REPO_URL. See server logs for redacted details.",
