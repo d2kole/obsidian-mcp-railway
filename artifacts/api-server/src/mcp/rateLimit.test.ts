@@ -5,6 +5,8 @@ import {
   buildRateLimitRejection,
   shortSessionId,
   _resetWriteRateForTests,
+  _bucketCountForTests,
+  _BUCKET_SOFT_CAP_FOR_TESTS,
 } from "./rateLimit";
 
 describe("write rate limiter (deterministic, fake clock)", () => {
@@ -80,6 +82,23 @@ describe("write rate limiter (deterministic, fake clock)", () => {
     expect(blocked2.allowed).toBe(false);
     expect(blocked2.retryAfterSec).toBeLessThanOrEqual(1800);
     expect(blocked2.retryAfterSec).toBeGreaterThan(1799);
+  });
+
+  it("prunes expired buckets when the soft cap is reached, preventing unbounded growth", async () => {
+    // Fill the bucket map up to the soft cap with distinct sessions.
+    for (let i = 0; i < _BUCKET_SOFT_CAP_FOR_TESTS; i++) {
+      await consumeWrite(`stale-${i}`, 5);
+    }
+    expect(_bucketCountForTests()).toBe(_BUCKET_SOFT_CAP_FOR_TESTS);
+
+    // Roll forward past the hour boundary so every existing bucket is stale.
+    vi.advanceTimersByTime(60 * 60 * 1000 + 1);
+
+    // The next consumeWrite call sees buckets.size >= cap, runs
+    // pruneExpired, and reclaims every stale entry — leaving just the
+    // one fresh bucket we just inserted.
+    await consumeWrite("fresh-key", 5);
+    expect(_bucketCountForTests()).toBe(1);
   });
 
   it("retryAfterSec is at least 1 second even at the very edge of the window", async () => {

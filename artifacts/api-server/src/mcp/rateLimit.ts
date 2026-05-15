@@ -26,6 +26,23 @@ interface Bucket {
 
 const buckets = new Map<string, Bucket>();
 
+/**
+ * Soft cap on distinct session buckets we track in memory. The Railway
+ * deployment is single-instance + single-user so churn is tiny in normal
+ * operation, but a token-rotation loop or a misbehaving client could in
+ * principle accumulate stale entries forever. Whenever we cross this
+ * threshold we sweep any bucket whose window has expired.
+ */
+const BUCKET_SOFT_CAP = 1024;
+
+function pruneExpired(now: number): void {
+  for (const [key, b] of buckets) {
+    if (now - b.windowStart >= HOUR_MS) {
+      buckets.delete(key);
+    }
+  }
+}
+
 export interface RateLimitOutcome {
   allowed: boolean;
   remaining: number;
@@ -38,6 +55,9 @@ export async function consumeWrite(
   maxPerHour: number,
 ): Promise<RateLimitOutcome> {
   const now = Date.now();
+  if (buckets.size >= BUCKET_SOFT_CAP) {
+    pruneExpired(now);
+  }
   let bucket = buckets.get(key);
   if (!bucket || now - bucket.windowStart >= HOUR_MS) {
     bucket = { count: 0, windowStart: now };
@@ -102,3 +122,11 @@ export function buildRateLimitRejection(opts: {
 export function _resetWriteRateForTests(): void {
   buckets.clear();
 }
+
+/** Tests-only inspector for the bucket map size. */
+export function _bucketCountForTests(): number {
+  return buckets.size;
+}
+
+/** Tests-only knob: shrink the soft cap so we can exercise pruning fast. */
+export const _BUCKET_SOFT_CAP_FOR_TESTS = BUCKET_SOFT_CAP;

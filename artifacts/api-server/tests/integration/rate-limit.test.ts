@@ -6,7 +6,10 @@ import crypto from "node:crypto";
 
 import { buildOAuthRouter } from "../../src/oauth/routes";
 import { buildMcpRouter } from "../../src/mcp/transport";
-import { _resetWriteRateForTests } from "../../src/mcp/rateLimit";
+import {
+  _resetWriteRateForTests,
+  buildRateLimitRejection,
+} from "../../src/mcp/rateLimit";
 import { vaultService } from "../../src/vault/service";
 import { getConfig } from "../../src/lib/config";
 
@@ -222,10 +225,25 @@ describe("Rate limit through the real Express + MCP middleware stack", () => {
       retry_after_seconds: number;
       session_id: string;
     };
-    expect(payload.ok).toBe(false);
+    // Exact wire-contract assertion: the rejection payload must equal
+    // the canonical buildRateLimitRejection output for the same
+    // (maxWritesPerHour, sessionKey, retryAfterSec) tuple. Reusing the
+    // helper keeps the contract centralized so future copy edits to the
+    // user-facing text can't silently drift.
+    const expected = buildRateLimitRejection({
+      maxWritesPerHour: max,
+      sessionKey: token,
+      retryAfterSec: payload.retry_after_seconds,
+    });
+    expect(payload.error).toBe(expected.error);
+    expect(payload.hint).toBe(expected.hint);
+    expect(payload.session_id).toBe(expected.session_id);
+    // Sanity-check the substantive bits of that canonical text so a
+    // refactor of buildRateLimitRejection that drops, say, the limit
+    // value or "Retry in" guidance still trips the suite.
     expect(payload.error).toContain("Write rate limit exceeded");
     expect(payload.error).toContain(`${max} writes per hour`);
-    expect(payload.hint).toContain("Retry in");
+    expect(payload.hint).toContain(`Retry in ${payload.retry_after_seconds}s`);
     expect(payload.hint).toContain("MAX_WRITES_PER_HOUR");
     expect(payload.retry_after_seconds).toBeGreaterThan(0);
     expect(payload.retry_after_seconds).toBeLessThanOrEqual(3600);
