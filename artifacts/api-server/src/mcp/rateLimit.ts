@@ -1,53 +1,104 @@
-import { MemoryStore, type Store } from "express-rate-limit";
+import crypto from "node:crypto";
 import { logger } from "../lib/logger";
 
 /**
- * We use express-rate-limit's MemoryStore directly so we can increment from
- * inside the MCP tool dispatcher (a single HTTP POST may dispatch many
- * tool calls over the session lifetime). This keeps the implementation
- * consistent with express-rate-limit's algorithm and TTL semantics while
- * allowing per-tool gating.
+ * Per-session write rate limiter.
+ *
+ * Rolling-window counter keyed by an opaque session key (typically the OAuth
+ * access token). Hand-rolled (rather than `express-rate-limit`'s MemoryStore)
+ * so that:
+ *   1. `Date.now()` is the only time source — fake timers in tests work
+ *      deterministically with no real waits.
+ *   2. The MCP tool dispatcher (which is not an Express request handler) can
+ *      consume directly without a fake `req`/`res` shim.
+ *   3. We can reset state between tests via `_resetWriteRateForTests()`.
+ *
+ * Out of scope: cross-instance limiting. The Railway deployment is single
+ * instance per task #9 spec.
  */
+
 const HOUR_MS = 60 * 60 * 1000;
 
-// Initialize the limiter so the MemoryStore is configured with the same
-// window the MCP server uses; mounting it as middleware is also valid for
-// any future per-request endpoints.
-let store: Store | null = null;
-
-export function getWriteRateStore(): Store {
-  if (store) return store;
-  const s = new MemoryStore();
-  // Store.init is required before increment(); express-rate-limit normally
-  // calls it on first request, but we use the store directly from the MCP
-  // dispatcher.
-  // express-rate-limit's Store.init expects the full resolved Options type,
-  // but only windowMs is meaningful for MemoryStore. Cast through unknown to
-  // satisfy the strict signature without pulling in the entire Options shape.
-  (s.init as (opts: { windowMs: number }) => void)({ windowMs: HOUR_MS });
-  store = s;
-  return store;
+interface Bucket {
+  count: number;
+  windowStart: number;
 }
+
+const buckets = new Map<string, Bucket>();
 
 export interface RateLimitOutcome {
   allowed: boolean;
   remaining: number;
   resetMs: number;
+  retryAfterSec: number;
 }
 
 export async function consumeWrite(
   key: string,
   maxPerHour: number,
 ): Promise<RateLimitOutcome> {
-  const s = getWriteRateStore();
-  const result = await s.increment(key);
-  const used = result.totalHits;
-  const resetMs = result.resetTime
-    ? result.resetTime.getTime() - Date.now()
-    : HOUR_MS;
-  if (used > maxPerHour) {
-    logger.warn({ key, used, maxPerHour }, "write rate limit exceeded");
-    return { allowed: false, remaining: 0, resetMs };
+  const now = Date.now();
+  let bucket = buckets.get(key);
+  if (!bucket || now - bucket.windowStart >= HOUR_MS) {
+    bucket = { count: 0, windowStart: now };
+    buckets.set(key, bucket);
   }
-  return { allowed: true, remaining: maxPerHour - used, resetMs };
+  bucket.count += 1;
+
+  const resetMs = Math.max(0, bucket.windowStart + HOUR_MS - now);
+  const retryAfterSec = Math.max(1, Math.ceil(resetMs / 1000));
+
+  if (bucket.count > maxPerHour) {
+    logger.warn(
+      { used: bucket.count, maxPerHour, retryAfterSec },
+      "write rate limit exceeded",
+    );
+    return { allowed: false, remaining: 0, resetMs, retryAfterSec };
+  }
+  return {
+    allowed: true,
+    remaining: Math.max(0, maxPerHour - bucket.count),
+    resetMs,
+    retryAfterSec,
+  };
+}
+
+/**
+ * Derive a short, non-reversible session id from the raw session key. We
+ * surface this in rate-limit rejection payloads so a confused Claude session
+ * can correlate its own retries without the server ever echoing the bearer
+ * token back over the wire.
+ */
+export function shortSessionId(sessionKey: string): string {
+  return crypto
+    .createHash("sha256")
+    .update(sessionKey)
+    .digest("hex")
+    .slice(0, 8);
+}
+
+export interface RateLimitRejection {
+  error: string;
+  hint: string;
+  retry_after_seconds: number;
+  session_id: string;
+}
+
+export function buildRateLimitRejection(opts: {
+  maxWritesPerHour: number;
+  sessionKey: string;
+  retryAfterSec: number;
+}): RateLimitRejection {
+  const sid = shortSessionId(opts.sessionKey);
+  return {
+    error: `Write rate limit exceeded: ${opts.maxWritesPerHour} writes per hour for session ${sid}.`,
+    hint: `Retry in ${opts.retryAfterSec}s once the rolling window resets, or raise MAX_WRITES_PER_HOUR on Railway if this cap is too tight for your workload.`,
+    retry_after_seconds: opts.retryAfterSec,
+    session_id: sid,
+  };
+}
+
+/** Reset all in-memory buckets. Tests only. */
+export function _resetWriteRateForTests(): void {
+  buckets.clear();
 }
