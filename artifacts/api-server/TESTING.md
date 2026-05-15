@@ -24,7 +24,7 @@ still works end-to-end.
 | `pnpm --filter @workspace/api-server test:unit` | Vitest, restricted to `src/**` and `tests/unit/**`. |
 | `pnpm --filter @workspace/api-server test:integration` | Vitest, restricted to `tests/integration/**`. |
 | `pnpm --filter @workspace/api-server test:watch` | Re-runs Vitest on change. |
-| `pnpm --filter @workspace/api-server test:coverage` | Vitest with v8 coverage. Reports go to `coverage/`. Thresholds start at the current baseline (25% lines / 60% branches) and **must be raised** by each feature task as it lands its tests — long-term target is 70% lines / 60% branches. |
+| `pnpm --filter @workspace/api-server test:coverage` | Vitest with v8 coverage. Reports go to `coverage/`. Thresholds start at the spec target (70% lines / 70% statements / 60% functions / 60% branches) and currently **fail** at the ~25% baseline — closing that gap is the explicit job of Tasks #7-#11. Not part of `verify`; see "Coverage threshold ratchet" below. |
 | `pnpm --filter @workspace/api-server test:e2e` | Boots the api-server (build + start:http) and runs Playwright. |
 | `pnpm --filter @workspace/api-server typecheck` | `tsc --noEmit`. |
 | `pnpm --filter @workspace/api-server lint` | Placeholder (no eslint config wired yet — see "Out of scope"). Exits 0 so it can stay in the `verify` chain. |
@@ -82,18 +82,24 @@ Rules:
 
 ## Coverage threshold ratchet
 
-The `coverage.thresholds` block in `vitest.config.ts` starts at the
-current baseline so `test:coverage` is green from day one. **Every
-feature task in this batch must raise the corresponding numbers** when
-it lands its tests:
+The `coverage.thresholds` block in `vitest.config.ts` is set to the
+spec target from day one (70% lines, 70% statements, 60% functions,
+60% branches). Current baseline coverage is ~25%, so `test:coverage`
+**fails today by design** — the failure is the explicit acceptance
+criterion that downstream TDD tasks must drive to zero:
 
 - Tasks #7-11 (TDD: VaultService, write-paths, rate limiter, OAuth,
-  MCP tools): bump `lines` and `statements` thresholds to match the
-  new actual coverage of the modules they cover.
-- Task #16 (verification gate enforcement): final ratchet to the
-  long-term target (70% lines / 60% branches).
-- Task #17 (CI pipeline): wires `test:coverage` into CI so a
-  regression below the current threshold breaks the build.
+  MCP tools) each land tests that raise `lines` / `statements` /
+  `functions` toward the threshold for the modules they cover.
+- Task #16 (verification gate enforcement) confirms `test:coverage`
+  exits 0 against the documented thresholds.
+- Task #17 (CI pipeline) wires `test:coverage` into CI so any
+  regression below the threshold breaks the build.
+
+`test:coverage` is intentionally **not** part of the `verify` chain:
+`verify` gates correctness (does the code do what it claims?), while
+`test:coverage` gates sufficiency (do we have enough tests yet?). They
+ship green on different timelines.
 
 Never lower a threshold to make a failing build pass — fix the test
 gap instead.

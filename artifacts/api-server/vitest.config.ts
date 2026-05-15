@@ -21,14 +21,16 @@ export default defineConfig({
         "src/**/*.d.ts",
         "src/index.ts",
       ],
-      // Baseline thresholds match current coverage so `test:coverage` is
-      // green from day one. Each feature task in this batch is expected to
-      // raise the corresponding number when it lands its tests. Long-term
-      // target documented in TESTING.md is 70% lines / 60% branches.
+      // Starting gate per Task #6 spec: 70% lines / 70% statements /
+      // 60% functions / 60% branches. `test:coverage` will fail at the
+      // current ~25% baseline — that gap is the explicit work downstream
+      // TDD tasks (#7-#11) close. `test:coverage` is intentionally NOT in
+      // the `verify` chain (verify gates correctness, coverage gates
+      // sufficiency); see TESTING.md.
       thresholds: {
-        lines: 25,
-        functions: 50,
-        statements: 25,
+        lines: 70,
+        functions: 60,
+        statements: 70,
         branches: 60,
       },
     },
