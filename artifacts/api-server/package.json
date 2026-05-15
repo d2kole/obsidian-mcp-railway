@@ -23,7 +23,7 @@
     "verify:write-path": "vitest run tests/unit/write-path.test.ts --coverage --coverage.include='src/vault/write-path.ts' --coverage.include='src/vault/errors.ts' --coverage.thresholds.lines=95 --coverage.thresholds.statements=95 --coverage.thresholds.functions=95 --coverage.thresholds.branches=95",
     "verify:rate-limit": "vitest run src/mcp/rateLimit.test.ts tests/integration/rate-limit.test.ts --coverage --coverage.include='src/mcp/rateLimit.ts' --coverage.thresholds.lines=95 --coverage.thresholds.statements=95 --coverage.thresholds.functions=95 --coverage.thresholds.branches=95",
     "verify:oauth": "vitest run src/oauth/oauth.test.ts src/oauth/store.persistence.test.ts --coverage --coverage.include='src/oauth/**' --coverage.thresholds.lines=90 --coverage.thresholds.branches=90",
-    "verify:tools": "vitest run src/mcp/tools.contract.test.ts src/mcp/write-rejection.test.ts --coverage --coverage.include='src/mcp/tools.ts' --coverage.thresholds.lines=85 --coverage.thresholds.statements=85 --coverage.thresholds.functions=85 --coverage.thresholds.branches=70"
+    "verify:tools": "vitest run src/mcp/tools.contract.test.ts src/mcp/write-rejection.test.ts --reporter=verbose --coverage --coverage.include='src/mcp/tools.ts' --coverage.thresholds.lines=85 --coverage.thresholds.statements=85 --coverage.thresholds.functions=85 --coverage.thresholds.branches=70"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
