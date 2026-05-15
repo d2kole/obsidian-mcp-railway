@@ -241,13 +241,42 @@ describe("assertNoSymlinkEscape", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("rejects writes that would resolve outside the cache via a symlink", async () => {
+  it("allows writes when called with an empty allowlist (path is inside the cache)", async () => {
+    const target = path.join(cacheDir, "anywhere.md");
+    await expect(
+      assertNoSymlinkEscape(cacheDir, target, []),
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects writes that would resolve outside the cache via a symlink, naming the allowlist", async () => {
     const linkDir = path.join(cacheDir, "evil");
     await symlink(outsideDir, linkDir);
     const target = path.join(linkDir, "secret.txt");
-    await expect(assertNoSymlinkEscape(cacheDir, target)).rejects.toThrow(
-      /symlink/,
-    );
+    try {
+      await assertNoSymlinkEscape(cacheDir, target, ["00-Inbox", "Journal"]);
+      throw new Error("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(VaultError);
+      const e = err as VaultError;
+      expect(e.message).toMatch(/symlink/);
+      expect(e.hint).toContain("00-Inbox");
+      expect(e.hint).toContain("Journal");
+      expect(e.hint).toContain("OBSIDIAN_WRITE_PATHS");
+      expect(e.hint).toContain("Use one of these paths instead");
+    }
+  });
+
+  it("symlink rejection hint surfaces the empty-allowlist guidance when no paths are configured", async () => {
+    const linkDir = path.join(cacheDir, "evil2");
+    await symlink(outsideDir, linkDir);
+    const target = path.join(linkDir, "secret.txt");
+    try {
+      await assertNoSymlinkEscape(cacheDir, target, []);
+      throw new Error("should have thrown");
+    } catch (err) {
+      const e = err as VaultError;
+      expect(e.hint).toContain("OBSIDIAN_WRITE_PATHS is empty");
+    }
   });
 });
 

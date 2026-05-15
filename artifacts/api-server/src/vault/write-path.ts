@@ -147,6 +147,7 @@ export function resolveSafePath(cacheDir: string, relPath: string): string {
 export async function assertNoSymlinkEscape(
   cacheDir: string,
   abs: string,
+  allowedPaths: readonly string[],
 ): Promise<void> {
   const realCache = await fsp.realpath(cacheDir);
   // Walk up to the nearest existing ancestor and check ITS realpath.
@@ -159,9 +160,13 @@ export async function assertNoSymlinkEscape(
   }
   const realProbe = await fsp.realpath(probe);
   if (realProbe !== realCache && !realProbe.startsWith(realCache + path.sep)) {
+    const list =
+      allowedPaths.length === 0
+        ? "(none — OBSIDIAN_WRITE_PATHS is empty, all writes are rejected)"
+        : allowedPaths.join(", ");
     throw new VaultError(
       `Write rejected: "${abs}" resolves outside the vault root via a symlink.`,
-      "Remove the symlink from the vault cache or restrict OBSIDIAN_WRITE_PATHS so it cannot reach it.",
+      `Remove the symlink from the vault cache, or restrict OBSIDIAN_WRITE_PATHS so it cannot reach it. Allowed write paths: ${list}. Use one of these paths instead.`,
     );
   }
 }

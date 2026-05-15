@@ -193,7 +193,7 @@ export class VaultService {
   async writeFile(relPath: string, content: string): Promise<void> {
     this.assertWriteAllowed(relPath);
     const abs = this.resolveSafePath(relPath);
-    await assertNoSymlinkEscape(this.cacheDir, abs);
+    await assertNoSymlinkEscape(this.cacheDir, abs, this.writePaths);
     await fs.mkdir(path.dirname(abs), { recursive: true });
     await fs.writeFile(abs, content, "utf8");
   }
@@ -201,7 +201,7 @@ export class VaultService {
   async deleteFile(relPath: string): Promise<void> {
     this.assertWriteAllowed(relPath);
     const abs = this.resolveSafePath(relPath);
-    await assertNoSymlinkEscape(this.cacheDir, abs);
+    await assertNoSymlinkEscape(this.cacheDir, abs, this.writePaths);
     try {
       await fs.unlink(abs);
     } catch (err) {
@@ -218,8 +218,8 @@ export class VaultService {
     this.assertWriteAllowed(toPath);
     const absFrom = this.resolveSafePath(fromPath);
     const absTo = this.resolveSafePath(toPath);
-    await assertNoSymlinkEscape(this.cacheDir, absFrom);
-    await assertNoSymlinkEscape(this.cacheDir, absTo);
+    await assertNoSymlinkEscape(this.cacheDir, absFrom, this.writePaths);
+    await assertNoSymlinkEscape(this.cacheDir, absTo, this.writePaths);
     await fs.mkdir(path.dirname(absTo), { recursive: true });
     await fs.rename(absFrom, absTo);
   }
@@ -255,7 +255,7 @@ export class VaultService {
   async createDirectory(relPath: string): Promise<void> {
     this.assertWriteAllowed(relPath);
     const abs = this.resolveSafePath(relPath);
-    await assertNoSymlinkEscape(this.cacheDir, abs);
+    await assertNoSymlinkEscape(this.cacheDir, abs, this.writePaths);
     await fs.mkdir(abs, { recursive: true });
     const keep = path.join(abs, ".gitkeep");
     if (!existsSync(keep)) {

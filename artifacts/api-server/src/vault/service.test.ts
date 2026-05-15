@@ -50,10 +50,10 @@ describe("VaultService write-path safety", () => {
 
   it("resolveSafePath blocks paths that resolve outside the cache dir", () => {
     const svc = primed();
-    // Backslashes are normalized to forward slashes; absolute paths get
-    // their leading slash stripped, so /etc/passwd becomes etc/passwd which
-    // resolves safely. We must rely on the .. check here.
+    // `..` is rejected by the traversal check; absolute paths are
+    // rejected by the absolute-path check (see write-path.ts).
     expect(() => svc.resolveSafePath("..")).toThrow(VaultError);
+    expect(() => svc.resolveSafePath("/etc/passwd")).toThrow(VaultError);
   });
 
   it("resolveSafePath returns a path inside the cache dir for valid input", () => {
