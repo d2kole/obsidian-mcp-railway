@@ -1,6 +1,15 @@
 title = "gitleaks config — obsidian-mcp-railway"
 
 # ---------------------------------------------------------------------------
+# Extend the bundled gitleaks rules. Without this, specifying a custom
+# config disables the default rule set entirely and gitleaks will report
+# "no leaks found" against any input — silently turning the CI gate into
+# a no-op. Verified by the Task #39 demonstration PR.
+# ---------------------------------------------------------------------------
+[extend]
+  useDefault = true
+
+# ---------------------------------------------------------------------------
 # Allowlist
 #
 # Real secrets must be removed AND rotated — never allowlist a real leak.
