@@ -13,6 +13,7 @@ import {
 } from "./store";
 import { getConfig } from "../lib/config";
 import { logger } from "../lib/logger";
+import { isAllowedRedirectUri } from "./redirectAllowlist";
 
 function timingSafeEqualStr(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -46,31 +47,7 @@ export interface AuthedRequest extends Request {
 
 function isAllowedRedirect(uri: string): boolean {
   const cfg = getConfig();
-  let target: URL;
-  try {
-    target = new URL(uri);
-  } catch {
-    return false;
-  }
-  // No fragments allowed in redirect_uri per RFC 6749 §3.1.2.
-  if (target.hash) return false;
-  return cfg.oauthAllowedRedirectPrefixes.some((prefix) => {
-    let allowed: URL;
-    try {
-      allowed = new URL(prefix);
-    } catch {
-      return false;
-    }
-    if (target.protocol !== allowed.protocol) return false;
-    // Exact host match (prevents localhost.evil.com bypass).
-    if (target.hostname !== allowed.hostname) return false;
-    // Exact port match (treat empty as protocol default).
-    if ((target.port || "") !== (allowed.port || "")) return false;
-    // Path must be under the allowed prefix path.
-    const allowedPath = allowed.pathname || "/";
-    if (!target.pathname.startsWith(allowedPath)) return false;
-    return true;
-  });
+  return isAllowedRedirectUri(uri, cfg.oauthAllowedRedirectPrefixes);
 }
 
 export async function requireAccessToken(

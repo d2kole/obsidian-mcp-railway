@@ -4,6 +4,9 @@ const PORT = Number(process.env.E2E_PORT ?? 5179);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 export default defineConfig({
+  env: {
+    E2E_PORT: String(PORT),
+  },
   testDir: "./tests/e2e",
   testMatch: /.*\.spec\.ts$/,
   timeout: 30_000,
@@ -21,7 +24,9 @@ export default defineConfig({
     // exec's the api-server. This makes the OAuth + MCP browser flow exercise
     // a real git pipeline without touching github.com.
     command: "pnpm run build && node ./scripts/e2e-bootstrap.mjs",
-    url: `${BASE_URL}/`,
+    // Wait until OAuth metadata responds — `/` can answer before routes are
+    // fully exercised; this endpoint proves the HTTP stack is ready.
+    url: `${BASE_URL}/.well-known/oauth-protected-resource`,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
     cwd: ".",
@@ -38,7 +43,16 @@ export default defineConfig({
       PERSONAL_AUTH_TOKEN: "e2e-personal-auth-token",
       OBSIDIAN_WRITE_PATHS: "00-Inbox,Journal",
       MAX_WRITES_PER_HOUR: "20",
-      OAUTH_ALLOWED_REDIRECT_PREFIXES: "http://127.0.0.1,http://localhost",
+      // Explicit dev ports + bare loopback entries (any port on 127.0.0.1/localhost
+      // via isAllowedRedirectUri loopback wildcard when prefix omits port).
+      OAUTH_ALLOWED_REDIRECT_PREFIXES: [
+        `http://127.0.0.1:${PORT}`,
+        `http://localhost:${PORT}`,
+        "http://127.0.0.1:5179",
+        "http://localhost:5179",
+        "http://127.0.0.1",
+        "http://localhost",
+      ].join(","),
     },
   },
 });

@@ -603,9 +603,8 @@ describe("OAuth additional rejection paths (task #10 TDD coverage)", () => {
 
   it("isAllowedRedirect skips a malformed prefix in config without throwing", async () => {
     // Inject a bogus prefix at runtime so the URL constructor inside
-    // isAllowedRedirect throws on the prefix parse — the loop must catch and
-    // continue evaluating the remaining (well-formed) prefixes rather than
-    // 500ing the whole authorize endpoint.
+    // isAllowedRedirectUri skips it — the loop must continue evaluating the
+    // remaining (well-formed) prefixes rather than 500ing the whole authorize endpoint.
     const cfg = getConfig();
     const original = [...cfg.oauthAllowedRedirectPrefixes];
     cfg.oauthAllowedRedirectPrefixes.unshift("::not-a-url::");

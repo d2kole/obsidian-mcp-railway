@@ -20,7 +20,10 @@ import crypto from "node:crypto";
 
 const PERSONAL_AUTH_TOKEN = "e2e-personal-auth-token";
 const CLIENT_ID = "obsidian-mcp-railway-e2e";
-const ALLOWED_REDIRECT = "http://127.0.0.1:5179/cb";
+
+const E2E_PORT = process.env.E2E_PORT ?? process.env.PORT ?? "5179";
+const E2E_ORIGIN = `http://127.0.0.1:${E2E_PORT}`;
+const ALLOWED_REDIRECT = `${E2E_ORIGIN}/cb`;
 const ATTACKER_REDIRECT = "https://evil.example.com/cb";
 
 function pkcePair(): { verifier: string; challenge: string } {
@@ -88,17 +91,23 @@ test.describe("OAuth + MCP browser flow", () => {
     const state = crypto.randomBytes(8).toString("hex");
 
     // Step 1: navigate to /oauth/authorize and submit the consent form.
-    const authorizeUrl = new URL("/oauth/authorize", "http://127.0.0.1:5179");
-    authorizeUrl.searchParams.set("response_type", "code");
-    authorizeUrl.searchParams.set("client_id", CLIENT_ID);
-    authorizeUrl.searchParams.set("redirect_uri", ALLOWED_REDIRECT);
-    authorizeUrl.searchParams.set("code_challenge", challenge);
-    authorizeUrl.searchParams.set("code_challenge_method", "S256");
-    authorizeUrl.searchParams.set("scope", "mcp");
-    authorizeUrl.searchParams.set("state", state);
-
-    await page.goto(authorizeUrl.toString());
-    await expect(page.locator('input[name="auth_token"]')).toBeVisible();
+    const authorizeQs = new URLSearchParams({
+      response_type: "code",
+      client_id: CLIENT_ID,
+      redirect_uri: ALLOWED_REDIRECT,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      scope: "mcp",
+      state,
+    });
+    const nav = await page.goto(`/oauth/authorize?${authorizeQs.toString()}`);
+    expect(
+      nav?.status(),
+      `authorize GET expected 200, got ${nav?.status()}: ${(await page.content()).slice(0, 800)}`,
+    ).toBe(200);
+    await expect(page.locator('input[name="auth_token"]')).toBeVisible({
+      timeout: 10_000,
+    });
 
     // Submit form; the redirect target (127.0.0.1:5179/cb) will return
     // 404 from the api-server, but that's fine — we only need the URL.
@@ -184,22 +193,24 @@ test.describe("OAuth + MCP browser flow", () => {
     await blockGithub(page);
     const { challenge } = pkcePair();
 
-    const authorizeUrl = new URL("/oauth/authorize", "http://127.0.0.1:5179");
-    authorizeUrl.searchParams.set("response_type", "code");
-    authorizeUrl.searchParams.set("client_id", CLIENT_ID);
-    authorizeUrl.searchParams.set("redirect_uri", ATTACKER_REDIRECT);
-    authorizeUrl.searchParams.set("code_challenge", challenge);
-    authorizeUrl.searchParams.set("code_challenge_method", "S256");
-    authorizeUrl.searchParams.set("scope", "mcp");
-    authorizeUrl.searchParams.set("state", "x");
-
-    const res = await page.goto(authorizeUrl.toString());
+    const authorizeQs = new URLSearchParams({
+      response_type: "code",
+      client_id: CLIENT_ID,
+      redirect_uri: ATTACKER_REDIRECT,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      scope: "mcp",
+      state: "x",
+    });
+    const res = await page.goto(`/oauth/authorize?${authorizeQs.toString()}`);
     // Server should refuse before rendering the form. The exact status is
     // 400-class with an error_description; just make sure the form is NOT
-    // shown and no redirect to evil.example.com occurred.
+    // shown and the browser never navigates to the attacker's host (the
+    // request URL still contains evil.example.com inside redirect_uri).
     expect(res?.status()).toBeGreaterThanOrEqual(400);
     expect(res?.status()).toBeLessThan(500);
-    expect(page.url()).not.toContain("evil.example.com");
+    expect(new URL(page.url()).hostname).not.toBe("evil.example.com");
+    expect(new URL(page.url()).pathname).toBe("/oauth/authorize");
 
     const body = await page.content();
     expect(body.toLowerCase()).toMatch(/redirect|allowlist|unauthorized|invalid/);

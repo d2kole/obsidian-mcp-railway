@@ -53,7 +53,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: verify-evidence
-          path: artifacts/api-server/tests/.evidence/
+          # Explicit glob: upload-artifact v4 often skips dot-directories when given a bare directory path.
+          path: artifacts/api-server/tests/.evidence/*.log
           if-no-files-found: warn
 
       - name: Upload coverage HTML
