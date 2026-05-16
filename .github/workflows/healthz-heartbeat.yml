@@ -33,8 +33,8 @@ jobs:
         run: |
           set -u
           if [ -z "${HEALTHZ_URL:-}" ]; then
-            echo "HEALTHZ_URL secret is not configured" >&2
-            exit 1
+            echo "HEALTHZ_URL secret is not configured yet; skipping heartbeat."
+            exit 0
           fi
 
           echo "Heartbeat probe -> $HEALTHZ_URL"

@@ -34,8 +34,9 @@ jobs:
         run: |
           set -u
           if [ -z "${HEALTHZ_URL:-}" ]; then
-            echo "HEALTHZ_URL secret is not configured" >&2
-            exit 1
+            echo "HEALTHZ_URL secret is not configured yet; skipping probe."
+            echo "Set repo secrets HEALTHZ_URL, PUSHOVER_APP_TOKEN, PUSHOVER_USER_KEY to enable paging."
+            exit 0
           fi
 
           ATTEMPTS=3
