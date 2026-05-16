@@ -18,7 +18,8 @@ RUN corepack enable \
 
 FROM deps AS build
 COPY . .
-RUN pnpm --filter @workspace/api-zod build
+# @workspace/api-zod is a source-only package (exports './src/index.ts');
+# api-server's esbuild bundles it directly. No separate build step needed.
 RUN pnpm --filter @workspace/api-server build
 
 FROM node:22-alpine AS runtime
