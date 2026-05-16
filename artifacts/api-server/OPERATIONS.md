@@ -259,6 +259,67 @@ revert the change. Coverage thresholds (vault 90%, oauth 90%,
 write-path 95%, rate-limit 95%, tools 85%, routes 80%, project-wide
 80% lines / 75% branches) are intentionally hard floors.
 
+## Git history secret audit (Task #30)
+
+A one-time secret-scanning audit of the full git history was performed on
+**2026-05-16** before the repo was pushed to GitHub.
+
+- Tool: `gitleaks` v7.5.0 (`gitleaks detect --path . --redact -v`).
+- Scope: all 94 commits, every branch, working tree included.
+- Files-added review: `git log --all --diff-filter=A` was also run to
+  confirm no `.env`, `.oauth-store.json`, `*.pem`, `*.key`, `id_rsa`,
+  or `credentials*` file has ever been added to history. The only
+  env-shaped file ever committed is `artifacts/api-server/.env.example`
+  (placeholders only).
+- Sensitive env-var search (`git log -S` for `GITHUB_PAT=`,
+  `OAUTH_CLIENT_SECRET=`, `SESSION_ENCRYPTION_KEY=`,
+  `PERSONAL_AUTH_TOKEN=`) returned only the obviously-fake
+  `dev-*` placeholders inside
+  `artifacts/api-server/scripts/dev-bootstrap.sh` (e.g.
+  `OAUTH_CLIENT_SECRET="dev-client-secret"`). These are intentional
+  local-development placeholders, never used against any real client,
+  and pose no rotation risk.
+
+### Findings
+
+`gitleaks` reported 6 matches, all in the now-deleted file
+`attached_assets/logoHref.html` (a scraped marketing/HTML asset that
+was attached during an earlier session and later removed):
+
+| Rule | File | Status |
+| --- | --- | --- |
+| Facebook Client ID (×4) | `attached_assets/logoHref.html` | False positive — public OAuth client IDs embedded in third-party social-login widgets on a scraped HTML page. Not our credentials. |
+| LinkedIn Client ID (×2) | `attached_assets/logoHref.html` | False positive — same as above. |
+
+No production credentials (`GITHUB_PAT`, `OAUTH_CLIENT_SECRET`,
+`SESSION_ENCRYPTION_KEY`, `PERSONAL_AUTH_TOKEN`, private keys) were
+found in any commit. **No `git filter-repo` rewrite or secret
+rotation is required.**
+
+### Re-running the audit
+
+Run from the repo root. The `--log-opts="--all"` flag is important —
+without it, `gitleaks` v7 only walks the current branch and you can
+miss secrets sitting on other refs:
+
+```bash
+gitleaks detect \
+  --path . \
+  --redact \
+  -v \
+  --log-opts="--all --full-history" \
+  --report=artifacts/api-server/tests/.evidence/gitleaks-$(date +%Y%m%d).json
+```
+
+Keep the JSON report alongside the other verification evidence under
+`artifacts/api-server/tests/.evidence/` so the audit trail is
+reproducible.
+
+If new findings ever appear, triage them here and either (a) document
+them as false positives in this section, or (b) rotate the leaked
+credential immediately and rewrite history with `git filter-repo`
+**before** the next push.
+
 ## Out of scope (future work)
 
 - Conflict resolution on simultaneous Desktop + MCP writes (single-writer pattern avoids this for now).
