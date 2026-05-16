@@ -1,4 +1,4 @@
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 RUN apk add --no-cache git openssh-client ca-certificates
 WORKDIR /app
 
@@ -18,7 +18,7 @@ COPY . .
 RUN pnpm --filter @workspace/api-zod build
 RUN pnpm --filter @workspace/api-server build
 
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 RUN apk add --no-cache git openssh-client ca-certificates tini
 WORKDIR /app
 
