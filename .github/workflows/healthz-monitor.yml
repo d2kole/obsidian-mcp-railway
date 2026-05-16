@@ -60,15 +60,8 @@ jobs:
               last_body="$body"
               # Extract names of failing checks from the JSON body, if present.
               names="$(printf '%s' "$body" \
-                | python3 -c '
-import json, sys
-try:
-    data = json.load(sys.stdin)
-    names = [c.get("name","?") for c in data.get("checks", []) if not c.get("ok")]
-    print(",".join(names))
-except Exception:
-    pass
-' 2>/dev/null || true)"
+                | python3 -c 'import json,sys; data=json.load(sys.stdin); print(",".join(c.get("name","?") for c in data.get("checks", []) if not c.get("ok")))' \
+                2>/dev/null || true)"
               if [ -n "$names" ]; then
                 failing_checks="$names"
               elif [ -z "$failing_checks" ]; then
