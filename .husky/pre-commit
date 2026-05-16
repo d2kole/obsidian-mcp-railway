@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+# obsidian-mcp-railway pre-commit hook
+# Scans staged hunks for secrets before letting the commit land.
+# See scripts/src/secret-scan.ts for the rule list and SECURITY.md
+# for the allowlist conventions.
+exec pnpm --silent --filter @workspace/scripts exec tsx ../scripts/src/secret-scan.ts --staged

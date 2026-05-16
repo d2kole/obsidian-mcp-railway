@@ -200,6 +200,42 @@ If you suspect every device is compromised, rotate `OAUTH_CLIENT_SECRET` and
 `SESSION_ENCRYPTION_KEY` in Railway and redeploy — that invalidates every
 issued token at once.
 
+## Pre-commit secret scan
+
+A lightweight Node-based scanner (`scripts/src/secret-scan.ts`) runs as
+both a local pre-commit hook and a CI job, so a secret pasted into a
+tracked source file is caught before it ever reaches the remote.
+
+- **Local hook**: `.husky/pre-commit` invokes the scanner with `--staged`
+  on every `git commit`. Hooks are wired up automatically by the root
+  `prepare` npm script (`git config core.hooksPath .husky`) — any
+  contributor who runs `pnpm install` gets the hook for free, no extra
+  setup. The hook is a portable shell script with no native binary
+  dependency (no gitleaks install required).
+- **CI**: `.github/workflows/ci.yml` runs `pnpm run secret-scan` (i.e.
+  the same scanner with `--all`) against every tracked file, so PRs from
+  forks that bypass the local hook are still gated.
+
+### Allowlisting false positives
+
+Real secrets must be removed **and rotated** before committing — never
+allowlist around a real leak. For deliberate placeholders / test
+fixtures the scanner supports two opt-outs:
+
+1. **Inline marker** (preferred): append `secret-scan: allow` as a
+   comment on the same line. Example:
+   ```ts
+   const input = "https://x-access-token:ghp_AAAAAAAAAAAA@github.com/foo/bar.git"; // secret-scan: allow (test fixture)
+   ```
+2. **Path glob** in repo-root `.secretscanignore` (one glob per line,
+   `#` for comments) when an entire file is unavoidably noisy. Prefer
+   the inline marker — file-level ignores are blunt and easy to forget.
+
+The scanner also has a built-in placeholder allowlist for obvious
+dummies (`stdio-not-used`, `your-token-here`, `xxxxxxxx`,
+`example.com`, `changeme`, …), so most `.env.example`-style values pass
+without ceremony.
+
 ## Pre-merge / pre-deploy gate (Task #16, Task #17)
 
 Before merging or deploying any change to this artifact:

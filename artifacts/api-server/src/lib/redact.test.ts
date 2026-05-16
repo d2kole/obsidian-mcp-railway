@@ -13,7 +13,7 @@ describe("redactSecrets", () => {
 
   it("redacts basic-auth credentials embedded in URLs", () => {
     const input =
-      "fatal: unable to access 'https://x-access-token:ghp_AAAAAAAAAAAA@github.com/foo/bar.git/'";
+      "fatal: unable to access 'https://x-access-token:ghp_AAAAAAAAAAAA@github.com/foo/bar.git/'"; // secret-scan: allow (test fixture, fake credentials)
     const out = redactSecrets(input);
     expect(out).not.toContain("ghp_AAAAAAAAAAAA");
     expect(out).not.toContain("x-access-token");

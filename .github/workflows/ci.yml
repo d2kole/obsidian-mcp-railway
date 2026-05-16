@@ -27,6 +27,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Secret scan (all tracked files)
+        run: pnpm run secret-scan
+
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
