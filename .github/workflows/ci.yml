@@ -4,8 +4,38 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
 
 jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect secrets (PR — scan diff)
+        if: github.event_name == 'pull_request'
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+      - name: Detect secrets (push — scan full history)
+        if: github.event_name == 'push'
+        run: |
+          curl -sSfL \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz \
+            | tar -xz -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" detect \
+            --source . \
+            --log-opts="--all --full-history" \
+            --config .gitleaks.toml \
+            --redact \
+            -v
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -16,12 +46,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 11.1.2
+          version: 10
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
           cache: pnpm
 
       - name: Install dependencies
@@ -53,8 +83,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: verify-evidence
-          # Explicit glob: upload-artifact v4 often skips dot-directories when given a bare directory path.
-          path: artifacts/api-server/tests/.evidence/*.log
+          path: artifacts/api-server/tests/.evidence/
           if-no-files-found: warn
 
       - name: Upload coverage HTML
