@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { makeBareRepo, seedBareRepo, type BareRepo } from "../fixtures/git";
 
+const GIT_INTEGRATION_TIMEOUT = process.platform === "win32" ? 20_000 : 8_000;
+
 interface BootedVault {
   svc: import("../../src/vault/service").VaultService;
   VaultError: typeof import("../../src/vault/service").VaultError;
@@ -169,7 +171,7 @@ describe("VaultService — shared initialized vault", () => {
       "utf8",
     );
     expect(fromRemote).toContain("landed");
-  });
+  }, GIT_INTEGRATION_TIMEOUT);
 
   it("sync() fast-forwards to a commit pushed by another writer", async () => {
     const other = await bare.freshWorkingClone();
@@ -183,7 +185,7 @@ describe("VaultService — shared initialized vault", () => {
       "utf8",
     );
     expect(pulled).toContain("from other");
-  });
+  }, GIT_INTEGRATION_TIMEOUT);
 
   it("ensureInit() rejects calls before init() with a hint about /api/healthz", async () => {
     // Build an uninitialized instance from the same module — no clone needed.
@@ -245,7 +247,7 @@ describe("VaultService — isolated lifecycle behaviors", () => {
       "utf8",
     );
     expect(seeded).toContain("welcome");
-  });
+  }, GIT_INTEGRATION_TIMEOUT);
 
   it("init() reuses an existing clone on subsequent boots (no re-clone)", async () => {
     await freshSetup();
@@ -256,7 +258,7 @@ describe("VaultService — isolated lifecycle behaviors", () => {
     await bootVault({ remoteUrl: bare.url, cacheDir });
     expect(existsSync(sentinel)).toBe(true);
     expect(await readFile(sentinel, "utf8")).toBe("keep me");
-  });
+  }, GIT_INTEGRATION_TIMEOUT);
 
   it("init() re-clones when the working copy is corrupt (.git missing)", async () => {
     await freshSetup();
@@ -271,7 +273,7 @@ describe("VaultService — isolated lifecycle behaviors", () => {
       "utf8",
     );
     expect(seeded).toContain("welcome");
-  });
+  }, GIT_INTEGRATION_TIMEOUT);
 
   it("sync() throws a divergence-specific VaultError when --ff-only would conflict", async () => {
     await freshSetup();
@@ -303,7 +305,7 @@ describe("VaultService — isolated lifecycle behaviors", () => {
         /rebas|reset|re-clone|cache/i,
       );
     });
-  });
+  }, GIT_INTEGRATION_TIMEOUT);
 
   it("dryRunFetch() surfaces an error that names the failing operation when the remote disappears", async () => {
     await freshSetup();
@@ -321,7 +323,7 @@ describe("VaultService — isolated lifecycle behaviors", () => {
     } finally {
       await fs.rename(moved, bare.bareDir);
     }
-  });
+  }, GIT_INTEGRATION_TIMEOUT);
 
   it("loadConfig surfaces a descriptive error when GITHUB_PAT is missing", async () => {
     await freshSetup();
@@ -334,5 +336,5 @@ describe("VaultService — isolated lifecycle behaviors", () => {
     expect(() => config.loadConfig("stdio")).toThrow(
       /Missing required environment variable: GITHUB_PAT/,
     );
-  });
+  }, GIT_INTEGRATION_TIMEOUT);
 });

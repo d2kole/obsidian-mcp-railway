@@ -154,10 +154,15 @@ export function appendContent(content: string, addition: string): string {
  *    context
  *   -removed
  *   +added
+ *
+ * The output uses the content's dominant newline style. If content contains
+ * CRLF anywhere, LF-only patch hunks are applied and the result is normalized
+ * to CRLF so Windows checkouts do not fail context matching.
  */
 export function applyUnifiedPatch(content: string, patch: string): string {
-  const lines = content.split("\n");
-  const patchLines = patch.split("\n");
+  const newline = content.includes("\r\n") ? "\r\n" : "\n";
+  const lines = content.split(/\r?\n/);
+  const patchLines = patch.split(/\r?\n/);
   const result = [...lines];
 
   let i = 0;
@@ -200,7 +205,7 @@ export function applyUnifiedPatch(content: string, patch: string): string {
       i++;
     }
   }
-  return result.join("\n");
+  return result.join(newline);
 }
 
 export function addTagToContent(content: string, tag: string): string {

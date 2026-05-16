@@ -1,6 +1,8 @@
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+import { pathToFileURL } from "node:url";
 import { simpleGit, type SimpleGit } from "simple-git";
 
 /**
@@ -39,6 +41,23 @@ export interface MakeBareRepoOptions {
   prefix?: string;
 }
 
+async function removeTreeWithRetry(target: string): Promise<void> {
+  const retryable = new Set(["EBUSY", "ENOTEMPTY", "EPERM"]);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      await rm(target, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (!code || !retryable.has(code)) {
+        throw err;
+      }
+      await delay(100 * (attempt + 1));
+    }
+  }
+  await rm(target, { recursive: true, force: true });
+}
+
 /**
  * Initialize a bare repo in a fresh tmp dir. Returns the bare URL plus a
  * cleanup() that wipes everything created (bare repo, working clones, root).
@@ -55,7 +74,7 @@ export async function makeBareRepo(
   const bare: SimpleGit = simpleGit(bareDir);
   await bare.init({ "--bare": null, "--initial-branch": branch });
 
-  const url = `file://${bareDir}`;
+  const url = pathToFileURL(bareDir).href;
 
   return {
     bareDir,
@@ -85,7 +104,7 @@ export async function makeBareRepo(
       };
     },
     async cleanup() {
-      await rm(root, { recursive: true, force: true });
+      await removeTreeWithRetry(root);
     },
   };
 }

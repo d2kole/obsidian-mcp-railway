@@ -46,6 +46,8 @@ import crypto from "node:crypto";
 
 import { makeBareRepo, seedBareRepo, type BareRepo } from "../fixtures/git";
 
+const GIT_INTEGRATION_TIMEOUT = process.platform === "win32" ? 20_000 : 8_000;
+
 // ---------------------------------------------------------------------------
 // Shared git helpers — use git raw commands so simple-git's internal log
 // format does not interfere with our queries.
@@ -279,7 +281,7 @@ describe("Write flow against real bare git remote (no vault mocks)", () => {
     expect(messages[0]).toContain("write C");
     expect(messages[1]).toContain("write B");
     expect(messages[2]).toContain("write A");
-  });
+  }, GIT_INTEGRATION_TIMEOUT);
 
   it("push race — competing commit between sync and push surfaces a descriptive error", async () => {
     // Sync to get current HEAD.
@@ -309,7 +311,7 @@ describe("Write flow against real bare git remote (no vault mocks)", () => {
     // Raw PAT / basic-auth fragments must not appear in the error text.
     expect(caught!.message).not.toMatch(/ghp_/);
     expect(caught!.message).not.toMatch(new RegExp("://[^@]+@"));
-  });
+  }, GIT_INTEGRATION_TIMEOUT);
 });
 
 // ===========================================================================

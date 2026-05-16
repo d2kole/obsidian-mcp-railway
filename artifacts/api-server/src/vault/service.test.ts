@@ -1,6 +1,10 @@
 import "../test/env";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, it, expect } from "vitest";
 import { VaultService, VaultError } from "./service";
+
+const CACHE_DIR = path.join(tmpdir(), "vault-cache-test");
 
 function primed(): VaultService {
   const svc = new VaultService();
@@ -12,7 +16,7 @@ function primed(): VaultService {
     git: unknown;
   };
   internals.initialized = true;
-  internals.cacheDir = "/tmp/vault-cache-test";
+  internals.cacheDir = CACHE_DIR;
   internals.writePaths = ["00-Inbox", "01-Daily", "Captures"];
   internals.git = {};
   return svc;
@@ -59,8 +63,8 @@ describe("VaultService write-path safety", () => {
   it("resolveSafePath returns a path inside the cache dir for valid input", () => {
     const svc = primed();
     const abs = svc.resolveSafePath("00-Inbox/note.md");
-    expect(abs.startsWith("/tmp/vault-cache-test/")).toBe(true);
-    expect(abs.endsWith("/00-Inbox/note.md")).toBe(true);
+    expect(abs.startsWith(CACHE_DIR + path.sep)).toBe(true);
+    expect(abs.endsWith(path.join("00-Inbox", "note.md"))).toBe(true);
   });
 
   it("fails closed when the configured allowlist is empty (env unset)", () => {

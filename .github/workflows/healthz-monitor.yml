@@ -1,6 +1,6 @@
 name: healthz-monitor
 
-# Hits the public /api/healthz endpoint every minute. Each run probes the
+# Hits the public /api/healthz endpoint every five minutes. Each run probes the
 # endpoint 3 times, 20 seconds apart. If *all 3* probes return a non-200
 # response, the monitor pages via Pushover with the failing check name(s).
 #
@@ -14,7 +14,7 @@ name: healthz-monitor
 
 on:
   schedule:
-    - cron: "* * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 concurrency:

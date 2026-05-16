@@ -137,6 +137,18 @@ describe("applyUnifiedPatch", () => {
     expect(applyUnifiedPatch(content, patch)).toBe("one\nTWO\nthree\n");
   });
 
+  it("applies LF patches to CRLF content while preserving CRLF output", () => {
+    const content = "one\r\ntwo\r\nthree\r\n";
+    const patch = "@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n";
+    expect(applyUnifiedPatch(content, patch)).toBe("one\r\nTWO\r\nthree\r\n");
+  });
+
+  it("normalizes mixed newline content to CRLF when any CRLF is present", () => {
+    const content = "one\r\ntwo\nthree\r\n";
+    const patch = "@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n";
+    expect(applyUnifiedPatch(content, patch)).toBe("one\r\nTWO\r\nthree\r\n");
+  });
+
   it("throws on a malformed hunk header", () => {
     expect(() => applyUnifiedPatch("a\n", "@@ bogus @@\n a\n")).toThrow(
       VaultError,

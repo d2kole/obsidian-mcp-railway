@@ -15,7 +15,8 @@ import {
 } from "../../src/vault/write-path";
 
 const ALLOWED = ["00-Inbox", "01-Daily", "Captures", "Journal"] as const;
-const CACHE = "/tmp/vault-cache-test";
+const CACHE = path.join(tmpdir(), "vault-cache-test");
+const DIRECTORY_SYMLINK_TYPE = process.platform === "win32" ? "junction" : "dir";
 
 describe("normalizeRelativePath", () => {
   it("strips leading slashes and normalizes backslashes to forward", () => {
@@ -157,7 +158,7 @@ describe("resolveSafePath", () => {
   it("returns an absolute path inside the cache for valid input", () => {
     const abs = resolveSafePath(CACHE, "00-Inbox/note.md");
     expect(abs.startsWith(CACHE + path.sep)).toBe(true);
-    expect(abs.endsWith("00-Inbox/note.md")).toBe(true);
+    expect(abs.endsWith(path.join("00-Inbox", "note.md"))).toBe(true);
   });
 
   it("rejects literal `..` traversal", () => {
@@ -250,7 +251,7 @@ describe("assertNoSymlinkEscape", () => {
 
   it("rejects writes that would resolve outside the cache via a symlink, naming the allowlist", async () => {
     const linkDir = path.join(cacheDir, "evil");
-    await symlink(outsideDir, linkDir);
+    await symlink(outsideDir, linkDir, DIRECTORY_SYMLINK_TYPE);
     const target = path.join(linkDir, "secret.txt");
     try {
       await assertNoSymlinkEscape(cacheDir, target, ["00-Inbox", "Journal"]);
@@ -268,7 +269,7 @@ describe("assertNoSymlinkEscape", () => {
 
   it("symlink rejection hint surfaces the empty-allowlist guidance when no paths are configured", async () => {
     const linkDir = path.join(cacheDir, "evil2");
-    await symlink(outsideDir, linkDir);
+    await symlink(outsideDir, linkDir, DIRECTORY_SYMLINK_TYPE);
     const target = path.join(linkDir, "secret.txt");
     try {
       await assertNoSymlinkEscape(cacheDir, target, []);
