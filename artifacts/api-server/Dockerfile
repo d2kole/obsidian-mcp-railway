@@ -11,7 +11,7 @@ COPY lib/api-client-react/package.json lib/api-client-react/
 COPY lib/db/package.json lib/db/
 COPY scripts/package.json scripts/
 
-RUN corepack enable && pnpm approve-builds esbuild && pnpm install --frozen-lockfile=false
+RUN corepack enable && pnpm install --frozen-lockfile=false --ignore-scripts && pnpm approve-builds esbuild && pnpm rebuild esbuild
 
 FROM deps AS build
 COPY . .
