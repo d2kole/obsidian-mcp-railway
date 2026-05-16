@@ -1,4 +1,12 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -158,34 +166,42 @@ describe("VaultService — shared initialized vault", () => {
     expect(kept).toBe("preserve");
   });
 
-  it("commitAndPush produces a single commit with the supplied message and lands it on the remote", async () => {
-    await svc.writeFile("00-Inbox/landed.md", "# landed\n");
-    const sha = await svc.commitAndPush("add landed note");
-    expect(sha).toMatch(/^[0-9a-f]{7,40}$/);
+  it(
+    "commitAndPush produces a single commit with the supplied message and lands it on the remote",
+    async () => {
+      await svc.writeFile("00-Inbox/landed.md", "# landed\n");
+      const sha = await svc.commitAndPush("add landed note");
+      expect(sha).toMatch(/^[0-9a-f]{7,40}$/);
 
-    const verify = await bare.freshWorkingClone();
-    const log = await verify.git.log();
-    expect(log.latest?.message).toBe("add landed note");
-    const fromRemote = await readFile(
-      path.join(verify.dir, "00-Inbox/landed.md"),
-      "utf8",
-    );
-    expect(fromRemote).toContain("landed");
-  }, GIT_INTEGRATION_TIMEOUT);
+      const verify = await bare.freshWorkingClone();
+      const log = await verify.git.log();
+      expect(log.latest?.message).toBe("add landed note");
+      const fromRemote = await readFile(
+        path.join(verify.dir, "00-Inbox/landed.md"),
+        "utf8",
+      );
+      expect(fromRemote).toContain("landed");
+    },
+    GIT_INTEGRATION_TIMEOUT,
+  );
 
-  it("sync() fast-forwards to a commit pushed by another writer", async () => {
-    const other = await bare.freshWorkingClone();
-    await other.commitAndPush(
-      { "00-Inbox/from-other.md": "# from other\n" },
-      "external write",
-    );
-    await svc.sync(true);
-    const pulled = await readFile(
-      path.join(cacheDir, "00-Inbox/from-other.md"),
-      "utf8",
-    );
-    expect(pulled).toContain("from other");
-  }, GIT_INTEGRATION_TIMEOUT);
+  it(
+    "sync() fast-forwards to a commit pushed by another writer",
+    async () => {
+      const other = await bare.freshWorkingClone();
+      await other.commitAndPush(
+        { "00-Inbox/from-other.md": "# from other\n" },
+        "external write",
+      );
+      await svc.sync(true);
+      const pulled = await readFile(
+        path.join(cacheDir, "00-Inbox/from-other.md"),
+        "utf8",
+      );
+      expect(pulled).toContain("from other");
+    },
+    GIT_INTEGRATION_TIMEOUT,
+  );
 
   it("ensureInit() rejects calls before init() with a hint about /api/healthz", async () => {
     // Build an uninitialized instance from the same module — no clone needed.
@@ -237,104 +253,128 @@ describe("VaultService — isolated lifecycle behaviors", () => {
     if (bare) await bare.cleanup();
   });
 
-  it("init() clones the remote into an empty cache dir on first boot", async () => {
-    await freshSetup();
-    expect(existsSync(cacheDir)).toBe(false);
-    await bootVault({ remoteUrl: bare.url, cacheDir });
-    expect(existsSync(path.join(cacheDir, ".git"))).toBe(true);
-    const seeded = await readFile(
-      path.join(cacheDir, "00-Inbox/welcome.md"),
-      "utf8",
-    );
-    expect(seeded).toContain("welcome");
-  }, GIT_INTEGRATION_TIMEOUT);
-
-  it("init() reuses an existing clone on subsequent boots (no re-clone)", async () => {
-    await freshSetup();
-    await bootVault({ remoteUrl: bare.url, cacheDir });
-    const sentinel = path.join(cacheDir, ".sentinel");
-    await writeFile(sentinel, "keep me", "utf8");
-
-    await bootVault({ remoteUrl: bare.url, cacheDir });
-    expect(existsSync(sentinel)).toBe(true);
-    expect(await readFile(sentinel, "utf8")).toBe("keep me");
-  }, GIT_INTEGRATION_TIMEOUT);
-
-  it("init() re-clones when the working copy is corrupt (.git missing)", async () => {
-    await freshSetup();
-    await bootVault({ remoteUrl: bare.url, cacheDir });
-    await rm(path.join(cacheDir, ".git"), { recursive: true, force: true });
-    expect(existsSync(path.join(cacheDir, ".git"))).toBe(false);
-
-    await bootVault({ remoteUrl: bare.url, cacheDir });
-    expect(existsSync(path.join(cacheDir, ".git"))).toBe(true);
-    const seeded = await readFile(
-      path.join(cacheDir, "00-Inbox/welcome.md"),
-      "utf8",
-    );
-    expect(seeded).toContain("welcome");
-  }, GIT_INTEGRATION_TIMEOUT);
-
-  it("sync() throws a divergence-specific VaultError when --ff-only would conflict", async () => {
-    await freshSetup();
-    const { svc, VaultError } = await bootVault({
-      remoteUrl: bare.url,
-      cacheDir,
-    });
-
-    const other = await bare.freshWorkingClone();
-    await other.commitAndPush(
-      { "00-Inbox/welcome.md": "# welcome — remote edit\n" },
-      "remote divergent edit",
-    );
-
-    await writeFile(
-      path.join(cacheDir, "00-Inbox/welcome.md"),
-      "# welcome — local edit\n",
-      "utf8",
-    );
-    await svc.commitAndPush("local divergent edit").catch(() => {});
-
-    await expect(svc.sync(true)).rejects.toMatchObject({
-      name: "VaultError",
-      message: expect.stringMatching(/diverged|fast-forward/i),
-    });
-    await svc.sync(true).catch((err) => {
-      expect(err).toBeInstanceOf(VaultError);
-      expect((err as InstanceType<typeof VaultError>).hint).toMatch(
-        /rebas|reset|re-clone|cache/i,
+  it(
+    "init() clones the remote into an empty cache dir on first boot",
+    async () => {
+      await freshSetup();
+      expect(existsSync(cacheDir)).toBe(false);
+      await bootVault({ remoteUrl: bare.url, cacheDir });
+      expect(existsSync(path.join(cacheDir, ".git"))).toBe(true);
+      const seeded = await readFile(
+        path.join(cacheDir, "00-Inbox/welcome.md"),
+        "utf8",
       );
-    });
-  }, GIT_INTEGRATION_TIMEOUT);
+      expect(seeded).toContain("welcome");
+    },
+    GIT_INTEGRATION_TIMEOUT,
+  );
 
-  it("dryRunFetch() surfaces an error that names the failing operation when the remote disappears", async () => {
-    await freshSetup();
-    const { svc } = await bootVault({ remoteUrl: bare.url, cacheDir });
+  it(
+    "init() reuses an existing clone on subsequent boots (no re-clone)",
+    async () => {
+      await freshSetup();
+      await bootVault({ remoteUrl: bare.url, cacheDir });
+      const sentinel = path.join(cacheDir, ".sentinel");
+      await writeFile(sentinel, "keep me", "utf8");
 
-    const moved = bare.bareDir + ".moved";
-    await mkdir(path.dirname(moved), { recursive: true });
-    const fs = await import("node:fs/promises");
-    await fs.rename(bare.bareDir, moved);
+      await bootVault({ remoteUrl: bare.url, cacheDir });
+      expect(existsSync(sentinel)).toBe(true);
+      expect(await readFile(sentinel, "utf8")).toBe("keep me");
+    },
+    GIT_INTEGRATION_TIMEOUT,
+  );
 
-    try {
-      await expect(svc.dryRunFetch()).rejects.toThrow(
-        /fetch|repository|not.*found/i,
+  it(
+    "init() re-clones when the working copy is corrupt (.git missing)",
+    async () => {
+      await freshSetup();
+      await bootVault({ remoteUrl: bare.url, cacheDir });
+      await rm(path.join(cacheDir, ".git"), { recursive: true, force: true });
+      expect(existsSync(path.join(cacheDir, ".git"))).toBe(false);
+
+      await bootVault({ remoteUrl: bare.url, cacheDir });
+      expect(existsSync(path.join(cacheDir, ".git"))).toBe(true);
+      const seeded = await readFile(
+        path.join(cacheDir, "00-Inbox/welcome.md"),
+        "utf8",
       );
-    } finally {
-      await fs.rename(moved, bare.bareDir);
-    }
-  }, GIT_INTEGRATION_TIMEOUT);
+      expect(seeded).toContain("welcome");
+    },
+    GIT_INTEGRATION_TIMEOUT,
+  );
 
-  it("loadConfig surfaces a descriptive error when GITHUB_PAT is missing", async () => {
-    await freshSetup();
-    vi.resetModules();
-    vi.stubEnv("VAULT_REPO_URL", bare.url);
-    vi.stubEnv("VAULT_CACHE_DIR", cacheDir);
-    vi.stubEnv("GITHUB_PAT", "");
+  it(
+    "sync() throws a conflict-specific VaultError when --rebase hits a content conflict",
+    async () => {
+      await freshSetup();
+      const { svc, VaultError } = await bootVault({
+        remoteUrl: bare.url,
+        cacheDir,
+      });
 
-    const config = await import("../../src/lib/config");
-    expect(() => config.loadConfig("stdio")).toThrow(
-      /Missing required environment variable: GITHUB_PAT/,
-    );
-  }, GIT_INTEGRATION_TIMEOUT);
+      const other = await bare.freshWorkingClone();
+      await other.commitAndPush(
+        { "00-Inbox/welcome.md": "# welcome — remote edit\n" },
+        "remote divergent edit",
+      );
+
+      await writeFile(
+        path.join(cacheDir, "00-Inbox/welcome.md"),
+        "# welcome — local edit\n",
+        "utf8",
+      );
+      await svc.commitAndPush("local divergent edit").catch(() => {});
+
+      await expect(svc.sync(true)).rejects.toMatchObject({
+        name: "VaultError",
+        message: expect.stringMatching(/conflict|rebase/i),
+      });
+      await svc.sync(true).catch((err) => {
+        expect(err).toBeInstanceOf(VaultError);
+        expect((err as InstanceType<typeof VaultError>).hint).toMatch(
+          /rebas|reset|re-clone|cache/i,
+        );
+      });
+    },
+    GIT_INTEGRATION_TIMEOUT,
+  );
+
+  it(
+    "dryRunFetch() surfaces an error that names the failing operation when the remote disappears",
+    async () => {
+      await freshSetup();
+      const { svc } = await bootVault({ remoteUrl: bare.url, cacheDir });
+
+      const moved = bare.bareDir + ".moved";
+      await mkdir(path.dirname(moved), { recursive: true });
+      const fs = await import("node:fs/promises");
+      await fs.rename(bare.bareDir, moved);
+
+      try {
+        await expect(svc.dryRunFetch()).rejects.toThrow(
+          /fetch|repository|not.*found/i,
+        );
+      } finally {
+        await fs.rename(moved, bare.bareDir);
+      }
+    },
+    GIT_INTEGRATION_TIMEOUT,
+  );
+
+  it(
+    "loadConfig surfaces a descriptive error when GITHUB_PAT is missing",
+    async () => {
+      await freshSetup();
+      vi.resetModules();
+      vi.stubEnv("VAULT_REPO_URL", bare.url);
+      vi.stubEnv("VAULT_CACHE_DIR", cacheDir);
+      vi.stubEnv("GITHUB_PAT", "");
+
+      const config = await import("../../src/lib/config");
+      expect(() => config.loadConfig("stdio")).toThrow(
+        /Missing required environment variable: GITHUB_PAT/,
+      );
+    },
+    GIT_INTEGRATION_TIMEOUT,
+  );
 });

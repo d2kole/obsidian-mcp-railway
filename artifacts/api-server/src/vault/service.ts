@@ -24,7 +24,9 @@ export class VaultService {
   private initialized = false;
   private lastSyncMs = 0;
   // Pull before every read per spec; no throttle by default. Set VAULT_SYNC_MIN_INTERVAL_MS to throttle in dev.
-  private readonly minSyncIntervalMs = Number(process.env["VAULT_SYNC_MIN_INTERVAL_MS"] ?? 0);
+  private readonly minSyncIntervalMs = Number(
+    process.env["VAULT_SYNC_MIN_INTERVAL_MS"] ?? 0,
+  );
 
   async init(): Promise<void> {
     const cfg = getConfig();
@@ -44,7 +46,9 @@ export class VaultService {
       // If the cache dir has orphan files but no .git, the working copy is
       // corrupt (manual edit, half-deleted, etc.). Clear it so the clone
       // can land — there's no valid history to preserve here anyway.
-      const entries = await fs.readdir(this.cacheDir).catch(() => [] as string[]);
+      const entries = await fs
+        .readdir(this.cacheDir)
+        .catch(() => [] as string[]);
       if (entries.length > 0) {
         logger.warn(
           { cacheDir: this.cacheDir, orphanCount: entries.length },
@@ -70,7 +74,9 @@ export class VaultService {
         ]);
       } catch (err) {
         logger.error({ err: redactError(err) }, "Vault clone failed");
-        throw new Error(redactSecrets("Vault clone failed. See logs for details."));
+        throw new Error(
+          redactSecrets("Vault clone failed. See logs for details."),
+        );
       }
       logger.info("Vault clone complete");
     }
@@ -100,25 +106,25 @@ export class VaultService {
       return;
     }
     try {
-      await this.git!.pull("origin", this.branch, ["--ff-only"]);
+      await this.git!.pull("origin", this.branch, ["--rebase"]);
       this.lastSyncMs = now;
     } catch (err) {
       const raw = redactError(err);
-      logger.warn({ err: raw }, "git pull failed");
-      // Distinguish a divergence/non-fast-forward conflict from auth/network
-      // errors so the operator gets a useful next-action hint.
+      logger.warn({ err: raw }, "git pull --rebase failed");
+      // Rebase conflicts mean local and remote edited the same content.
+      // Any other error (auth, network, corrupt repo) gets the generic hint.
       if (
-        /not possible to fast-forward|non-fast-forward|diverged|unrelated histories|would clobber/i.test(
+        /CONFLICT|could not apply|rebase in progress|unrelated histories|would clobber/i.test(
           raw,
         )
       ) {
         throw new VaultError(
-          "git pull failed: local and remote have diverged (not a fast-forward).",
-          "Resolve the conflict by rebasing or resetting the cache (e.g. delete /vault-cache and let the server re-clone), then retry. See server logs for the redacted git output.",
+          "git pull --rebase failed: content conflict between local commits and remote.",
+          "Delete /vault-cache and redeploy so the server re-clones from GitHub, then retry. See server logs for the redacted git output.",
         );
       }
       throw new VaultError(
-        "git pull failed.",
+        "git pull --rebase failed.",
         "Check that GITHUB_PAT is valid and has read access to VAULT_REPO_URL. See server logs for redacted details.",
       );
     }
@@ -231,9 +237,7 @@ export class VaultService {
 
   async listMarkdown(subdir?: string): Promise<string[]> {
     this.ensureInit();
-    const root = subdir
-      ? this.resolveSafePath(subdir)
-      : this.cacheDir;
+    const root = subdir ? this.resolveSafePath(subdir) : this.cacheDir;
     const out: string[] = [];
     await this.walk(root, root, out, true);
     return out.sort();
