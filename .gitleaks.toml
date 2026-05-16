@@ -1,0 +1,19 @@
+title = "gitleaks config — obsidian-mcp-railway"
+
+# ---------------------------------------------------------------------------
+# Allowlist
+#
+# Real secrets must be removed AND rotated — never allowlist a real leak.
+# The entries below are documented false positives from the one-time history
+# audit (see OPERATIONS.md "Git history secret audit"). The only flagged file
+# is attached_assets/logoHref.html, a scraped marketing HTML asset (since
+# deleted) that contained public OAuth client IDs from third-party
+# social-login widgets (Facebook ×4, LinkedIn ×2). These are not our
+# credentials and require no rotation.
+# ---------------------------------------------------------------------------
+
+[allowlist]
+  description = "Known false positives — see OPERATIONS.md Git history secret audit"
+  paths = [
+    '''attached_assets/logoHref\.html'''
+  ]
