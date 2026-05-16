@@ -172,6 +172,48 @@ describe("oauth store persistence", () => {
     process.env["OAUTH_STORE_PATH"] = storeFile;
   });
 
+  it("persists last-used metadata across simulated restart", async () => {
+    const a = await freshStore();
+    const tok = await a.issueAccessToken({
+      clientId: "obsidian-mcp-railway",
+      scope: "mcp",
+      ttlSec: 3600,
+    });
+    const t0 = Date.now();
+    const looked = await a.lookupAccessToken(tok.token, {
+      ip: "198.51.100.42",
+      userAgent: "claude-ios/2025.05",
+    });
+    expect(looked).not.toBeNull();
+    a.flushPersist();
+
+    const b = await freshStore();
+    const list = b.listActiveTokens();
+    const entry = list.find((t) => t.jti === tok.jti)!;
+    expect(entry).toBeDefined();
+    expect(entry.lastUsedAt).toBeGreaterThanOrEqual(t0);
+    expect(entry.lastUsedIp).toBe("198.51.100.42");
+    expect(entry.lastUserAgent).toBe("claude-ios/2025.05");
+  });
+
+  it("truncates absurdly long User-Agent values before persisting", async () => {
+    const a = await freshStore();
+    const tok = await a.issueAccessToken({
+      clientId: "obsidian-mcp-railway",
+      scope: "mcp",
+      ttlSec: 3600,
+    });
+    const huge = "x".repeat(10_000);
+    await a.lookupAccessToken(tok.token, { ip: "10.0.0.1", userAgent: huge });
+    a.flushPersist();
+    const raw = JSON.parse(fs.readFileSync(storeFile, "utf8")) as {
+      issued: Array<{ jti: string; lastUserAgent?: string }>;
+    };
+    const entry = raw.issued.find((t) => t.jti === tok.jti)!;
+    expect(entry.lastUserAgent).toBeDefined();
+    expect(entry.lastUserAgent!.length).toBeLessThanOrEqual(256);
+  });
+
   it("evicts oldest revoked entries past the cap", async () => {
     const s = await freshStore();
     const cap = s._internals.REVOKED_CAP;

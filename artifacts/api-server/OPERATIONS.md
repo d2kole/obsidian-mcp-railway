@@ -153,10 +153,35 @@ curl -s https://<your-railway-domain>/admin/tokens \
   -H "Authorization: Bearer $PERSONAL_AUTH_TOKEN" | jq
 ```
 
-Each entry has a `jti` (token id), `client_id`, `scope`, `issued_at`, and
-`expires_at` (both in ms since epoch). Pick the `jti` of the session you want
-to terminate — `issued_at` is usually enough to identify the right one if you
-remember roughly when each device was last paired.
+Each entry has a `jti` (token id), `client_id`, `scope`, `issued_at`,
+`expires_at`, `last_used_at`, `last_used_ip`, and `last_user_agent`.
+Timestamps are ms since epoch; `last_used_*` fields are `null` until the
+token has been used at least once after the server learned to record them.
+
+In practice, **`last_used_at` is the field to look at first** when deciding
+which session to revoke — a session that's been quiet for a week is almost
+certainly a forgotten device, while one that just made a call from an
+unfamiliar `last_used_ip` or `last_user_agent` is the suspicious one. Sort
+the output by `last_used_at` to spot stale or anomalous sessions:
+
+```bash
+curl -s https://<your-railway-domain>/admin/tokens \
+  -H "Authorization: Bearer $PERSONAL_AUTH_TOKEN" \
+  | jq '.tokens | sort_by(.last_used_at // 0)'
+```
+
+`last_used_*` is updated on every successful token lookup (i.e. every
+authenticated `/mcp` request) and persists across restarts via the OAuth
+store on the Railway volume.
+
+`last_used_ip` reflects the client IP as resolved through Express's
+`trust proxy = 1` setting (see `src/app.ts`). This trusts exactly one
+hop — Railway's edge proxy — so `X-Forwarded-For` from the proxy is
+honored but a hostile client cannot spoof their IP by injecting their own
+`X-Forwarded-For` chain. If you ever front this server with an additional
+proxy (e.g. Cloudflare in front of Railway), bump that hop count to
+match, otherwise the field will pin to the inner proxy instead of the
+real client.
 
 **2. Revoke that token:**
 

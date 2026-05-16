@@ -21,7 +21,15 @@ interface IssuedTokenMeta {
   scope: string;
   issuedAt: number;
   expiresAt: number;
+  lastUsedAt?: number;
+  lastUsedIp?: string;
+  lastUserAgent?: string;
 }
+
+// Cap on stored User-Agent length to keep the persisted store bounded — a
+// hostile or buggy client could otherwise pin arbitrary memory by sending
+// huge UA headers on every request.
+const USER_AGENT_MAX = 256;
 
 interface PersistedState {
   version: 1;
@@ -274,6 +282,9 @@ export interface ActiveTokenInfo {
   scope: string;
   issuedAt: number;
   expiresAt: number;
+  lastUsedAt?: number;
+  lastUsedIp?: string;
+  lastUserAgent?: string;
 }
 
 export function listActiveTokens(): ActiveTokenInfo[] {
@@ -303,6 +314,7 @@ export function isTokenIssued(jti: string): boolean {
 
 export async function lookupAccessToken(
   token: string,
+  context?: { ip?: string; userAgent?: string },
 ): Promise<AccessToken | null> {
   ensureLoaded();
   const cfg = getConfig();
@@ -314,6 +326,21 @@ export async function lookupAccessToken(
     const p = payload as JWTPayload & { scope?: string; sub?: string; jti?: string };
     if (!p.sub || !p.jti || !p.exp) return null;
     if (revoked.has(p.jti)) return null;
+    // Record last-used metadata for the matching issued entry. If the entry
+    // is missing (e.g. token signed before the issued[] table existed, or the
+    // store file was wiped), skip silently — the token is still valid by
+    // signature, we just can't attribute usage to a tracked session.
+    const meta = issued.get(p.jti);
+    if (meta) {
+      meta.lastUsedAt = Date.now();
+      if (context?.ip && context.ip.length > 0) {
+        meta.lastUsedIp = context.ip;
+      }
+      if (context?.userAgent && context.userAgent.length > 0) {
+        meta.lastUserAgent = context.userAgent.slice(0, USER_AGENT_MAX);
+      }
+      schedulePersist();
+    }
     return {
       token,
       clientId: p.sub,

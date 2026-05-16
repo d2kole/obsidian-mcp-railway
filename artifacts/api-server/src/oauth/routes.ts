@@ -90,7 +90,11 @@ export async function requireAccessToken(
       });
     return;
   }
-  const entry = await lookupAccessToken(m[1]!);
+  const ua = req.headers["user-agent"];
+  const entry = await lookupAccessToken(m[1]!, {
+    ip: req.ip,
+    userAgent: typeof ua === "string" ? ua : undefined,
+  });
   if (!entry) {
     res.status(401)
       .header("WWW-Authenticate", `Bearer realm="obsidian-mcp-railway", error="invalid_token"`)
@@ -353,6 +357,9 @@ export function buildOAuthRouter(): IRouter {
         scope: t.scope,
         issued_at: t.issuedAt,
         expires_at: t.expiresAt,
+        last_used_at: t.lastUsedAt ?? null,
+        last_used_ip: t.lastUsedIp ?? null,
+        last_user_agent: t.lastUserAgent ?? null,
       })),
     });
   });

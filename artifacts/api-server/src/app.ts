@@ -7,6 +7,13 @@ import { logger } from "./lib/logger";
 
 const app: Express = express();
 
+// Railway terminates TLS at its edge proxy and forwards via X-Forwarded-For.
+// Trust a single hop so req.ip reflects the real client (used by the OAuth
+// store's last_used_ip telemetry on /admin/tokens — see OPERATIONS.md).
+// "1" rather than "true" prevents an attacker from spoofing the IP by
+// chaining their own X-Forwarded-For values; only the proxy hop is honored.
+app.set("trust proxy", 1);
+
 app.use(
   pinoHttp({
     logger,

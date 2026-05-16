@@ -242,6 +242,59 @@ describe("OAuth PKCE flow", () => {
     expect(dupe.status).toBe(404);
   });
 
+  it("admin: surfaces last_used_at / last_used_ip / last_user_agent after a lookup", async () => {
+    const cfg = getConfig();
+    const tok = await issueAccessToken({
+      clientId: cfg.oauth.clientId,
+      scope: "mcp",
+      ttlSec: 3600,
+    });
+
+    // Before any use, the listing reports nulls for the last-used fields.
+    const app = makeApp();
+    const before = await request(app)
+      .get("/admin/tokens")
+      .set("Authorization", `Bearer ${cfg.oauth.personalAuthToken}`);
+    const beforeEntry = (before.body.tokens as Array<{
+      jti: string;
+      last_used_at: number | null;
+      last_used_ip: string | null;
+      last_user_agent: string | null;
+    }>).find((t) => t.jti === tok.jti)!;
+    expect(beforeEntry.last_used_at).toBeNull();
+    expect(beforeEntry.last_used_ip).toBeNull();
+    expect(beforeEntry.last_user_agent).toBeNull();
+
+    // Drive the middleware so it records IP + UA via lookupAccessToken.
+    const middlewareApp = express();
+    middlewareApp.use(express.json());
+    middlewareApp.set("trust proxy", true);
+    middlewareApp.get("/protected", requireAccessToken, (_req, res) => {
+      res.json({ ok: true });
+    });
+    const t0 = Date.now();
+    const protectedRes = await request(middlewareApp)
+      .get("/protected")
+      .set("Authorization", `Bearer ${tok.token}`)
+      .set("User-Agent", "test-agent/1.0")
+      .set("X-Forwarded-For", "203.0.113.7");
+    expect(protectedRes.status).toBe(200);
+
+    const after = await request(app)
+      .get("/admin/tokens")
+      .set("Authorization", `Bearer ${cfg.oauth.personalAuthToken}`);
+    const afterEntry = (after.body.tokens as Array<{
+      jti: string;
+      last_used_at: number | null;
+      last_used_ip: string | null;
+      last_user_agent: string | null;
+    }>).find((t) => t.jti === tok.jti)!;
+    expect(afterEntry.last_used_at).not.toBeNull();
+    expect(afterEntry.last_used_at!).toBeGreaterThanOrEqual(t0);
+    expect(afterEntry.last_used_ip).toBe("203.0.113.7");
+    expect(afterEntry.last_user_agent).toBe("test-agent/1.0");
+  });
+
   it("consumeAuthCode is single-use", () => {
     const cfg = getConfig();
     const code = createAuthCode({
