@@ -48,6 +48,26 @@ pnpm --filter @workspace/api-server run test:e2e
 
 `verify:all` is the **pre-merge gate** — never merge without a green run. Railway redeploys on every push to the watched branch; there is no automatic deploy gate on CI status.
 
+> `lint` is currently a no-op stub (no ESLint wired yet — see `TESTING.md`); `verify:all` runs `node ./scripts/verify.mjs`, not the npm-script chain literally. The shippable artifact is **only** `@workspace/api-server` — `artifacts/mockup-sandbox` is a design scratchpad, not deployed.
+
+## Monorepo & toolchain constraints
+
+This is a pnpm workspace (`packageManager: pnpm@11.1.2`), not a single package. The api-server consumes two workspace libraries via `workspace:*` — changing their public API requires rebuilding the consumer:
+
+- `lib/api-zod` (`@workspace/api-zod`) — shared Zod schemas
+- `lib/db` (`@workspace/db`) — Drizzle ORM layer
+
+`lib/*` packages typecheck through TypeScript project references (`pnpm run typecheck:libs` = `tsc --build`); the root `typecheck` runs that first, then the per-package typechecks. Build the libs before the server when their types change.
+
+Hard constraints (enforced by tooling — do not work around them):
+
+- **pnpm only.** The root `preinstall` hook aborts if invoked via npm/yarn. Never generate `package-lock.json`/`yarn.lock`.
+- **`minimumReleaseAge: 1440` in `pnpm-workspace.yaml`** blocks installing any npm package version less than 1 day old (supply-chain defense). Do not lower or remove it; add to `minimumReleaseAgeExclude` only for a trusted publisher when truly urgent.
+- esbuild and Tailwind/rollup/lightningcss native binaries are pinned to **linux-x64 only** via `overrides` (Railway target). Don't add other-platform binaries.
+- `pnpm secret-scan` (root) runs the repo's secret scanner; a Husky `prepare` hook wires `.husky` git hooks.
+
+The MCP server has **two transports**: `start:http` (Streamable HTTP, the Railway/production path) and `start:stdio` (local stdio). The entrypoint `dist/index.mjs` dispatches on the `http`/`stdio` argv.
+
 ## Architecture
 
 ```
