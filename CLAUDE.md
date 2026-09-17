@@ -112,7 +112,7 @@ The sync uses `git pull --rebase origin main`. This means:
 - If Desktop pushes while Railway is idle, the next tool call fast-forwards cleanly via rebase.
 - True content conflicts (same line edited both by Desktop and by a prior MCP commit) cause `rebase` to exit non-zero. The error is caught and surfaced as a `VaultError` with a hint to delete `/vault-cache` and let the server re-clone.
 
-`VAULT_SYNC_MIN_INTERVAL_MS` (default `0`) throttles sync in dev to avoid hammering a local git remote — leave it at `0` on Railway.
+`VAULT_SYNC_MIN_INTERVAL_MS` (default `5000`) throttles `sync()` so concurrent tool calls join a single in-flight `git pull --rebase` instead of each spawning their own. **The old default was `0` (no throttle) — this caused the 2026-09-16 pid-exhaustion outage** (every tool call pulling, unbounded, eventually exhausted the container's process table after 97 days uptime). Every git subprocess is also hard-capped by `VAULT_GIT_TIMEOUT_MS` (default `60000`ms via simple-git's `timeout.block`, which force-kills a hung process rather than just abandoning the promise).
 
 ## Write-path allowlist
 

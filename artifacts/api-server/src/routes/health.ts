@@ -40,19 +40,14 @@ router.get("/healthz", async (_req, res) => {
     });
   }
 
-  // 2. Real git fetch dry-run against the configured remote, hard-capped
-  //    so a slow upstream cannot blow past Railway's healthcheck timeout.
+  // 2. Real git fetch dry-run against the configured remote. The
+  //    subprocess itself is hard-capped by simple-git's timeout.block
+  //    (VAULT_HEALTH_FETCH_TIMEOUT_MS) on a dedicated SimpleGit instance,
+  //    which force-kills the process on timeout — a wrapping
+  //    Promise.race here would only abandon the promise, not the
+  //    subprocess, which is what caused the pid leak (2026-09-16).
   try {
-    const FETCH_TIMEOUT_MS = 400;
-    await Promise.race([
-      vaultService.dryRunFetch(),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`git fetch dry-run exceeded ${FETCH_TIMEOUT_MS}ms`)),
-          FETCH_TIMEOUT_MS,
-        ),
-      ),
-    ]);
+    await vaultService.dryRunFetch();
     checks.push({ name: "git_fetch_dry_run", ok: true });
   } catch (err) {
     checks.push({

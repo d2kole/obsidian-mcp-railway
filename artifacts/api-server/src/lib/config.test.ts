@@ -63,3 +63,66 @@ describe("loadConfig — OBSIDIAN_WRITE_PATHS fail-closed", () => {
     expect(cfg.vault.writePaths).toEqual(["00-Inbox", "Journal"]);
   });
 });
+
+describe("loadConfig — vault git timeout/throttle defaults", () => {
+  const ORIGINAL = process.env;
+
+  beforeEach(() => {
+    process.env = {
+      ...ORIGINAL,
+      VAULT_REPO_URL: "https://github.com/example/vault.git",
+      GITHUB_PAT: "ghp_supersecretpattokenvalue1234567890",
+      OAUTH_CLIENT_ID: "obsidian-mcp-railway",
+      OAUTH_CLIENT_SECRET: "test-client-secret-12345678",
+      SESSION_ENCRYPTION_KEY: "test-session-encryption-key-32chars!!",
+      PERSONAL_AUTH_TOKEN: "test-personal-auth-token",
+      BASE_URL: "http://localhost:3000",
+      OAUTH_ALLOWED_REDIRECT_PREFIXES:
+        "https://claude.ai/,http://localhost:8080/cb",
+      MAX_WRITES_PER_HOUR: "3",
+      VAULT_CACHE_DIR: "/tmp/vault-cache-test",
+    };
+    delete process.env["VAULT_GIT_TIMEOUT_MS"];
+    delete process.env["VAULT_SYNC_MIN_INTERVAL_MS"];
+    delete process.env["VAULT_HEALTH_FETCH_TIMEOUT_MS"];
+  });
+
+  afterEach(() => {
+    process.env = ORIGINAL;
+  });
+
+  async function freshLoadConfig() {
+    vi.resetModules();
+    const mod = await import("./config");
+    return mod.loadConfig("http");
+  }
+
+  it("defaults to a 60s git timeout, 5s sync throttle, and 5s health-fetch timeout", async () => {
+    const cfg = await freshLoadConfig();
+    expect(cfg.vault.gitTimeoutMs).toBe(60_000);
+    expect(cfg.vault.syncMinIntervalMs).toBe(5_000);
+    expect(cfg.vault.healthFetchTimeoutMs).toBe(5_000);
+  });
+
+  it("honors explicit overrides for all three", async () => {
+    process.env["VAULT_GIT_TIMEOUT_MS"] = "120000";
+    process.env["VAULT_SYNC_MIN_INTERVAL_MS"] = "10000";
+    process.env["VAULT_HEALTH_FETCH_TIMEOUT_MS"] = "2000";
+    const cfg = await freshLoadConfig();
+    expect(cfg.vault.gitTimeoutMs).toBe(120_000);
+    expect(cfg.vault.syncMinIntervalMs).toBe(10_000);
+    expect(cfg.vault.healthFetchTimeoutMs).toBe(2_000);
+  });
+
+  it("permits an explicit 0 to disable the sync throttle", async () => {
+    process.env["VAULT_SYNC_MIN_INTERVAL_MS"] = "0";
+    const cfg = await freshLoadConfig();
+    expect(cfg.vault.syncMinIntervalMs).toBe(0);
+  });
+
+  it("falls back to the default git timeout for a non-positive override", async () => {
+    process.env["VAULT_GIT_TIMEOUT_MS"] = "0";
+    const cfg = await freshLoadConfig();
+    expect(cfg.vault.gitTimeoutMs).toBe(60_000);
+  });
+});

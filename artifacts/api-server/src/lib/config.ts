@@ -22,6 +22,15 @@ function optionalNum(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+// Unlike optionalNum, permits an explicit 0 (used where 0 is a
+// meaningful "disable this" value rather than an invalid input).
+function optionalNonNegativeNum(name: string, fallback: number): number {
+  const v = process.env[name];
+  if (v === undefined || v.trim() === "") return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
 function parseList(name: string, fallback: string[]): string[] {
   const v = process.env[name];
   if (!v) return fallback;
@@ -41,6 +50,9 @@ export interface AppConfig {
     cacheDir: string;
     githubPat: string;
     writePaths: string[];
+    gitTimeoutMs: number;
+    syncMinIntervalMs: number;
+    healthFetchTimeoutMs: number;
   };
   oauth: {
     clientId: string;
@@ -81,6 +93,19 @@ export function loadConfig(mode: "http" | "stdio"): AppConfig {
       // server treats the vault as read-only. Operators must opt in
       // explicitly on Railway. See task #8 (write-path allowlist).
       writePaths: parseList("OBSIDIAN_WRITE_PATHS", []),
+      // Hard-caps every git subprocess (clone/pull/push/commit) so a
+      // hung remote can't accumulate unkilled processes. See 2026-09-16
+      // pid-exhaustion incident.
+      gitTimeoutMs: optionalNum("VAULT_GIT_TIMEOUT_MS", 60_000),
+      // Throttles sync() so every tool call doesn't spawn its own
+      // `git pull --rebase`. 0 previously meant "no throttle."
+      syncMinIntervalMs: optionalNonNegativeNum(
+        "VAULT_SYNC_MIN_INTERVAL_MS",
+        5_000,
+      ),
+      // Separate, much shorter timeout for the /api/healthz dry-run
+      // fetch so a slow upstream can't block Railway's healthcheck.
+      healthFetchTimeoutMs: optionalNum("VAULT_HEALTH_FETCH_TIMEOUT_MS", 5_000),
     },
     oauth: {
       clientId: optional("OAUTH_CLIENT_ID", "obsidian-mcp-railway"),
@@ -88,7 +113,10 @@ export function loadConfig(mode: "http" | "stdio"): AppConfig {
         ? optional("OAUTH_CLIENT_SECRET", "stdio-not-used")
         : required("OAUTH_CLIENT_SECRET"),
       sessionSecret: isStdio
-        ? optional("SESSION_ENCRYPTION_KEY", "stdio-not-used-padding-padding-pa")
+        ? optional(
+            "SESSION_ENCRYPTION_KEY",
+            "stdio-not-used-padding-padding-pa",
+          )
         : required("SESSION_ENCRYPTION_KEY"),
       personalAuthToken: isStdio
         ? optional("PERSONAL_AUTH_TOKEN", "stdio-not-used")
