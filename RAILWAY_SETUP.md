@@ -4,6 +4,11 @@ Step-by-step instructions for pushing this project to GitHub and wiring it up to
 
 **Time required:** ~20 minutes the first time.
 
+> **Live deployment (production).** Domain: `https://workspaceapi-server-production-2961.up.railway.app` — Railway project `daring-determination` → service `api-server`.
+> Health check (PowerShell): `curl.exe https://workspaceapi-server-production-2961.up.railway.app/api/healthz`
+> Last verified **2026-09-17**: `status: ok`, all three checks (`vault_cache_present`, `git_fetch_dry_run`, `mcp_handler_registered`) returned `ok`.
+> The `<your-railway-domain>` placeholders below are the generic template — substitute the domain above.
+
 ---
 
 ## Two repos, two different roles — do not mix them up
