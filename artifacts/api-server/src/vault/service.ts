@@ -17,22 +17,28 @@ export { VaultError } from "./errors";
 
 export class VaultService {
   private git: SimpleGit | null = null;
+  // Separate SimpleGit instance so the /api/healthz dry-run fetch gets
+  // its own short timeout without racing the general-purpose one used
+  // for pull/push/commit (see healthFetchTimeoutMs vs gitTimeoutMs).
+  private healthGit: SimpleGit | null = null;
   private cacheDir = "";
   private repoUrl = "";
   private branch = "main";
   private writePaths: string[] = [];
   private initialized = false;
   private lastSyncMs = 0;
-  // Pull before every read per spec; no throttle by default. Set VAULT_SYNC_MIN_INTERVAL_MS to throttle in dev.
-  private readonly minSyncIntervalMs = Number(
-    process.env["VAULT_SYNC_MIN_INTERVAL_MS"] ?? 0,
-  );
+  private minSyncIntervalMs = 0;
+  // Concurrent callers of sync() join this instead of each spawning
+  // their own `git pull --rebase`. See 2026-09-16 pid-exhaustion incident.
+  private syncPromise: Promise<void> | null = null;
 
   async init(): Promise<void> {
     const cfg = getConfig();
     this.cacheDir = cfg.vault.cacheDir;
     this.branch = cfg.vault.branch;
     this.writePaths = cfg.vault.writePaths;
+    this.minSyncIntervalMs = cfg.vault.syncMinIntervalMs;
+    const gitTimeoutMs = cfg.vault.gitTimeoutMs;
 
     const url = new URL(cfg.vault.repoUrl);
     url.username = "x-access-token";
@@ -65,7 +71,7 @@ export class VaultService {
         { cacheDir: this.cacheDir, branch: this.branch },
         "Vault cache empty, cloning from GitHub",
       );
-      const tempGit = simpleGit();
+      const tempGit = simpleGit({ timeout: { block: gitTimeoutMs } });
       try {
         await tempGit.clone(this.repoUrl, this.cacheDir, [
           "--branch",
@@ -81,10 +87,14 @@ export class VaultService {
       logger.info("Vault clone complete");
     }
 
-    this.git = simpleGit(this.cacheDir);
+    this.git = simpleGit(this.cacheDir, { timeout: { block: gitTimeoutMs } });
     await this.git.addConfig("user.email", "obsidian-mcp@railway.local");
     await this.git.addConfig("user.name", "obsidian-mcp-railway");
     await this.git.remote(["set-url", "origin", this.repoUrl]);
+
+    this.healthGit = simpleGit(this.cacheDir, {
+      timeout: { block: cfg.vault.healthFetchTimeoutMs },
+    });
 
     this.initialized = true;
     logger.info("VaultService initialized");
@@ -101,18 +111,31 @@ export class VaultService {
 
   async sync(force = false): Promise<void> {
     this.ensureInit();
+    // Join whatever pull is already running rather than spawning a
+    // second concurrent `git pull --rebase` for the same repo.
+    if (this.syncPromise) {
+      return this.syncPromise;
+    }
     const now = Date.now();
     if (!force && now - this.lastSyncMs < this.minSyncIntervalMs) {
       return;
     }
+    this.syncPromise = this.performPull(now);
+    try {
+      await this.syncPromise;
+    } finally {
+      this.syncPromise = null;
+    }
+  }
+
+  private async performPull(startedAtMs: number): Promise<void> {
     try {
       await this.git!.pull("origin", this.branch, ["--rebase"]);
-      this.lastSyncMs = now;
+      this.lastSyncMs = startedAtMs;
     } catch (err) {
       const raw = redactError(err);
       logger.warn({ err: raw }, "git pull --rebase failed");
       // Rebase conflicts mean local and remote edited the same content.
-      // Any other error (auth, network, corrupt repo) gets the generic hint.
       if (
         /CONFLICT|could not apply|rebase in progress|unrelated histories|would clobber/i.test(
           raw,
@@ -121,6 +144,27 @@ export class VaultService {
         throw new VaultError(
           "git pull --rebase failed: content conflict between local commits and remote.",
           "Delete /vault-cache and redeploy so the server re-clones from GitHub, then retry. See server logs for the redacted git output.",
+        );
+      }
+      // The git subprocess was force-killed by simple-git's block timeout
+      // (VAULT_GIT_TIMEOUT_MS) — a hung/slow remote, not an auth problem.
+      if (/block timeout reached|ETIMEDOUT/i.test(raw)) {
+        throw new VaultError(
+          "git pull --rebase timed out and was killed.",
+          "The git remote may be slow or unreachable. Check GitHub status and network egress from Railway; increase VAULT_GIT_TIMEOUT_MS if this is expected for a large vault.",
+        );
+      }
+      // Container ran out of pids (fork/clone failure) rather than a git
+      // problem at all. See 2026-09-16 incident: 97 days uptime, pids
+      // 1000/1000, "crun: fork: Resource temporarily unavailable."
+      if (
+        /resource temporarily unavailable|EAGAIN|crun: fork|fork: retry/i.test(
+          raw,
+        )
+      ) {
+        throw new VaultError(
+          "git pull --rebase failed: container is out of process slots.",
+          "This is pid exhaustion, not a GITHUB_PAT problem — restart the Railway service. If it recurs, check for a leak of un-killed subprocesses (see VAULT_GIT_TIMEOUT_MS / VAULT_SYNC_MIN_INTERVAL_MS).",
         );
       }
       throw new VaultError(
@@ -133,7 +177,7 @@ export class VaultService {
   async dryRunFetch(): Promise<void> {
     this.ensureInit();
     try {
-      await this.git!.raw(["fetch", "--dry-run", "origin", this.branch]);
+      await this.healthGit!.raw(["fetch", "--dry-run", "origin", this.branch]);
     } catch (err) {
       throw new Error(redactError(err));
     }
