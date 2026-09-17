@@ -75,11 +75,14 @@ for (const scriptName of EXPECTED) {
   }
   const featureT0 = Date.now();
   console.log(`\n========== ${scriptName} ==========`);
-  const proc = spawnSync("pnpm", ["run", scriptName], {
+  // scriptName is always one of the hardcoded EXPECTED values above, never
+  // user input, so folding it into a single shell command string is safe.
+  const proc = spawnSync(`pnpm run ${scriptName}`, {
     cwd: pkgRoot,
     stdio: ["ignore", "pipe", "pipe"],
     env: process.env,
     encoding: "utf8",
+    shell: true,
   });
   const ms = Date.now() - featureT0;
   const ok = proc.status === 0;
